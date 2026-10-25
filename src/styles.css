@@ -377,3 +377,14 @@
 .task-grid-new-row .task-grid-add-field { width:20px;height:20px;margin:1px; }
 .compact-table-panel .panel-heading { gap:8px;flex-wrap:wrap; }
 .task-grid-table .task-grid-add-field { min-width:20px; }
+
+
+/* Stage progress lives directly in the compact stage table. */
+.stage-progress-cell{font-weight:700;text-align:center;white-space:nowrap;border-radius:3px}
+.stage-progress-full{background:#d9f2df!important;color:#176b35!important}
+.stage-progress-zero{background:#f9dada!important;color:#9b2020!important}
+.stage-progress-partial{background:#fff0bf!important;color:#795500!important}
+
+/* Keep wheel gestures over either Gantt chart local to that chart. */
+.gantt-scroll{overscroll-behavior:contain;overscroll-behavior-y:contain;cursor:grab;touch-action:pan-x}
+.gantt-scroll:active{cursor:grabbing}
