@@ -366,3 +366,7 @@
 
 .sidebar-collapsed .sidebar .nav-item { display:flex !important; font-size:0 !important; justify-content:center; gap:0; padding:10px 0; }
 .sidebar-collapsed .sidebar .nav-item svg { display:block; }
+
+.gantt-scroll { cursor:grab; }
+.gantt-scroll:active { cursor:grabbing; }
+.gantt-scroll .gantt-row { user-select:none; }
