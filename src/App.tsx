@@ -12,9 +12,10 @@ type Project = { id: string; name: string; description: string | null; created_a
 type Comment = { id: string; body: string; created_at: string; user_id: string }
 type Role = 'owner' | 'editor' | 'commenter' | 'viewer'
 type TaskStatus = 'todo' | 'in_progress' | 'done'
-type Task = { id: string; project_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; assigned_to: string | null; created_by: string; created_at: string }
+type Stage = { id: string; project_id: string; name: string; description: string | null; created_by: string; created_at: string }
+type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; assigned_to: string | null; created_by: string; created_at: string }
 type Member = { user_id: string; role: Role; joined_at: string; email?: string }
-type Tab = 'overview' | 'tasks' | 'gantt' | 'team' | 'discussion' | 'settings'
+type Tab = 'overview' | 'stages' | 'stage_detail' | 'team' | 'discussion' | 'settings'
 
 const roleLabels: Record<Role, string> = { owner: 'Owner / Main editor', editor: 'Editor', commenter: 'Commenter', viewer: 'Viewer' }
 const colors = ['violet', 'blue', 'mint', 'orange']
@@ -32,12 +33,27 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
+  const [stages, setStages] = useState<Stage[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [stageComments, setStageComments] = useState<Comment[]>([])
+  const [taskComments, setTaskComments] = useState<Comment[]>([])
+  const [stageCommentText, setStageCommentText] = useState('')
+  const [taskCommentText, setTaskCommentText] = useState('')
   const [members, setMembers] = useState<Member[]>([])
   const [commentText, setCommentText] = useState('')
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [showTask, setShowTask] = useState(false)
+  const [showStage, setShowStage] = useState(false)
+  const [showProjectEdit, setShowProjectEdit] = useState(false)
+  const [editingStage, setEditingStage] = useState<Stage | null>(null)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
+  const [taskStageId, setTaskStageId] = useState<string | null>(null)
+  const [stageName, setStageName] = useState('')
+  const [stageDescription, setStageDescription] = useState('')
+  const [editProjectName, setEditProjectName] = useState('')
+  const [editProjectDescription, setEditProjectDescription] = useState('')
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [taskTitle, setTaskTitle] = useState('')
@@ -50,12 +66,14 @@ export default function App() {
   const [inviteRole, setInviteRole] = useState<Role>('editor')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>('stages')
   const [taskFilter, setTaskFilter] = useState<'all' | TaskStatus>('all')
   const [prefs, setPrefs] = useState(initialPrefs)
   const [profileName, setProfileName] = useState('')
 
   const selected = projects.find(p => p.id === selectedId) ?? null
+  const selectedStage = stages.find(s => s.id === selectedStageId) ?? null
+  const selectedStageTasks = tasks.filter(t => t.stage_id === selectedStageId)
   const filteredProjects = useMemo(() => projects.filter(p =>
     `${p.name} ${p.description ?? ''}`.toLowerCase().includes(search.toLowerCase())
   ), [projects, search])
@@ -81,11 +99,11 @@ export default function App() {
   }, [])
   useEffect(() => {
     if (session?.user) void loadProjects()
-    else { setProjects([]); setSelectedId(null) }
+    else { setProjects([]); setStages([]); setTasks([]); setSelectedStageId(null); setSelectedId(null) }
   }, [session?.user?.id])
   useEffect(() => {
     if (selectedId && session?.user) void loadProjectData(selectedId)
-    else { setComments([]); setTasks([]); setMembers([]) }
+    else { setComments([]); setStages([]); setTasks([]); setMembers([]); setSelectedStageId(null); setStageComments([]); setTaskComments([]) }
   }, [selectedId, session?.user?.id])
 
   async function loadProjects() {
@@ -101,15 +119,30 @@ export default function App() {
   }
   async function loadProjectData(projectId: string) {
     if (!supabase) return
-    const [c, t, m] = await Promise.all([
+    const [c, t, m, s] = await Promise.all([
       supabase.from('project_comments').select('id,body,created_at,user_id').eq('project_id', projectId).order('created_at', { ascending: true }),
       supabase.from('project_tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
-      supabase.from('project_members').select('user_id,role,joined_at').eq('project_id', projectId).order('joined_at', { ascending: true })
+      supabase.from('project_members').select('user_id,role,joined_at').eq('project_id', projectId).order('joined_at', { ascending: true }),
+      supabase.from('project_stages').select('*').eq('project_id', projectId).order('created_at', { ascending: true })
     ])
     if (c.error) setNotice(`Comments: ${c.error.message}`); else setComments(c.data ?? [])
     if (t.error) { if (!t.error.message.toLowerCase().includes('does not exist')) setNotice(`Tasks: ${t.error.message}`) } else setTasks(t.data ?? [])
     if (m.error) setNotice(`Members: ${m.error.message}`); else setMembers(m.data ?? [])
+    if (s.error) setNotice(`Stages could not load. Apply supabase/rebuild_stages.sql first: ${s.error.message}`)
+    else { const rows = (s.data ?? []) as Stage[]; setStages(rows); setSelectedStageId(current => current && rows.some(stage => stage.id === current) ? current : rows[0]?.id ?? null) }
   }
+  async function loadStageComments(stageId: string) {
+    if (!supabase) return
+    const { data, error } = await supabase.from('stage_comments').select('id,body,created_at,user_id').eq('stage_id', stageId).order('created_at', { ascending: true })
+    if (error) setNotice(`Stage comments: ${error.message}`); else setStageComments(data ?? [])
+  }
+  async function loadTaskComments(taskId: string) {
+    if (!supabase) return
+    const { data, error } = await supabase.from('task_comments').select('id,body,created_at,user_id').eq('task_id', taskId).order('created_at', { ascending: true })
+    if (error) setNotice(`Task comments: ${error.message}`); else setTaskComments(data ?? [])
+  }
+  useEffect(() => { if (selectedStageId && selectedId) void loadStageComments(selectedStageId); else setStageComments([]) }, [selectedStageId, selectedId])
+  useEffect(() => { if (showTask && editingTask?.id) void loadTaskComments(editingTask.id); else setTaskComments([]) }, [showTask, editingTask?.id])
   async function handleAuth(e: FormEvent) {
     e.preventDefault(); if (!supabase) return
     setBusy(true); setAuthMessage('')
@@ -123,7 +156,7 @@ export default function App() {
     setBusy(true); setNotice('')
     const { data, error } = await supabase.rpc('create_project', { project_name: projectName.trim(), project_description: projectDescription.trim() || null })
     if (error) setNotice(error.message)
-    else { setProjectName(''); setProjectDescription(''); setShowCreate(false); await loadProjects(); if (data) setSelectedId(data); setTab('overview'); setNotice('Project created.') }
+    else { setProjectName(''); setProjectDescription(''); setShowCreate(false); await loadProjects(); if (data) setSelectedId(data); setTab('stages'); setNotice('Project created.') }
     setBusy(false)
   }
   async function addComment(e: FormEvent) {
@@ -133,16 +166,73 @@ export default function App() {
     if (error) setNotice(error.message); else { setCommentText(''); await loadProjectData(selected.id) }
     setBusy(false)
   }
-  async function createTask(e: FormEvent) {
-    e.preventDefault(); if (!supabase || !session?.user || !selected || !taskTitle.trim()) return
-    setBusy(true)
-    const { error } = await supabase.from('project_tasks').insert({
-      project_id: selected.id, title: taskTitle.trim(), description: taskDescription.trim() || null,
-      status: taskStatus, priority: taskPriority, start_date: taskStart || null, due_date: taskDue || null, created_by: session.user.id
-    })
-    if (error) setNotice(`Could not create task. Run the new SQL migration first. Details: ${error.message}`)
-    else { setTaskTitle(''); setTaskDescription(''); setTaskStart(''); setTaskDue(''); setShowTask(false); await loadProjectData(selected.id); setNotice('Task created.') }
+  function openNewStage() { setEditingStage(null); setStageName(''); setStageDescription(''); setShowStage(true) }
+  function openEditStage(stage: Stage) { setEditingStage(stage); setStageName(stage.name); setStageDescription(stage.description ?? ''); setShowStage(true) }
+  async function saveStage(e: FormEvent) {
+    e.preventDefault(); if (!supabase || !selected || !session?.user || !canEdit(selected.role) || !stageName.trim()) return
+    setBusy(true); setNotice('')
+    const payload = { name: stageName.trim(), description: stageDescription.trim() || null }
+    const result = editingStage ? await supabase.from('project_stages').update(payload).eq('id', editingStage.id).select('id').single() : await supabase.from('project_stages').insert({ ...payload, project_id: selected.id, created_by: session.user.id }).select('id').single()
+    if (result.error) setNotice(`Could not save stage: ${result.error.message}`)
+    else { setShowStage(false); setEditingStage(null); await loadProjectData(selected.id); if (!editingStage && result.data?.id) { setSelectedStageId(result.data.id); setTab('stage_detail') } setNotice(editingStage ? 'Stage updated.' : 'Stage created.') }
     setBusy(false)
+  }
+  async function deleteStage(stage: Stage) {
+    if (!supabase || !selected || !canEdit(selected.role)) return
+    const children = tasks.filter(task => task.stage_id === stage.id)
+    if (!confirm(`WARNING 1 OF 2: Delete stage "${stage.name}"?${children.length ? ` It currently contains ${children.length} task(s).` : ''}`)) return
+    if (!confirm(`FINAL WARNING 2 OF 2: Permanently delete stage "${stage.name}"${children.length ? `, all ${children.length} tasks in it, and their task comments` : ''}? This cannot be undone.`)) return
+    const { error } = await supabase.from('project_stages').delete().eq('id', stage.id)
+    if (error) setNotice(error.message); else { await loadProjectData(selected.id); setTab('stages'); setNotice(`Stage "${stage.name}" deleted.`) }
+  }
+  function openCreateTask(stageId: string) { setEditingTask(null); setTaskStageId(stageId); setTaskTitle(''); setTaskDescription(''); setTaskPriority('normal'); setTaskStatus('todo'); setTaskStart(''); setTaskDue(''); setTaskCommentText(''); setShowTask(true) }
+  function openEditTask(task: Task) { setEditingTask(task); setTaskStageId(task.stage_id); setTaskTitle(task.title); setTaskDescription(task.description ?? ''); setTaskPriority(task.priority); setTaskStatus(task.status); setTaskStart(task.start_date ?? ''); setTaskDue(task.due_date ?? ''); setTaskCommentText(''); setShowTask(true) }
+  async function saveTask(e: FormEvent) {
+    e.preventDefault(); if (!supabase || !session?.user || !selected || !canEdit(selected.role) || !taskTitle.trim()) return
+    if (!taskStageId || !stages.some(stage => stage.id === taskStageId)) { setNotice('Create or select a stage before adding tasks.'); return }
+    if (taskStart && taskDue && taskDue < taskStart) { setNotice('End date cannot be earlier than start date.'); return }
+    setBusy(true); setNotice('')
+    const payload = { stage_id: taskStageId, project_id: selected.id, title: taskTitle.trim(), description: taskDescription.trim() || null, status: taskStatus, priority: taskPriority, start_date: taskStart || null, due_date: taskDue || null }
+    const result = editingTask ? await supabase.from('project_tasks').update(payload).eq('id', editingTask.id) : await supabase.from('project_tasks').insert({ ...payload, created_by: session.user.id })
+    if (result.error) setNotice(`Could not save task: ${result.error.message}. Check that supabase/rebuild_stages.sql has been applied.`)
+    else { setShowTask(false); setEditingTask(null); await loadProjectData(selected.id); setNotice(editingTask ? 'Task updated.' : 'Task created.') }
+    setBusy(false)
+  }
+  async function updateProject(e: FormEvent) {
+    e.preventDefault(); if (!supabase || !selected || !canEdit(selected.role) || !editProjectName.trim()) return
+    setBusy(true)
+    const { error } = await supabase.from('projects').update({ name: editProjectName.trim(), description: editProjectDescription.trim() || null }).eq('id', selected.id)
+    if (error) setNotice(error.message); else { setShowProjectEdit(false); await loadProjects(); setNotice('Project details updated.') }
+    setBusy(false)
+  }
+  function openProjectEdit() { if (!selected) return; setEditProjectName(selected.name); setEditProjectDescription(selected.description ?? ''); setShowProjectEdit(true) }
+  async function addStageComment(e: FormEvent) {
+    e.preventDefault(); if (!supabase || !session?.user || !selected || !selectedStage || !canComment(selected.role) || !stageCommentText.trim()) return
+    setBusy(true)
+    const { error } = await supabase.from('stage_comments').insert({ stage_id: selectedStage.id, user_id: session.user.id, body: stageCommentText.trim() })
+    if (error) setNotice(error.message); else { setStageCommentText(''); await loadStageComments(selectedStage.id) }
+    setBusy(false)
+  }
+  async function addTaskComment(e: FormEvent) {
+    e.preventDefault(); if (!supabase || !session?.user || !editingTask || !selected || !canComment(selected.role) || !taskCommentText.trim()) return
+    setBusy(true)
+    const { error } = await supabase.from('task_comments').insert({ task_id: editingTask.id, user_id: session.user.id, body: taskCommentText.trim() })
+    if (error) setNotice(error.message); else { setTaskCommentText(''); await loadTaskComments(editingTask.id) }
+    setBusy(false)
+  }
+  async function editThreadComment(target: 'stage' | 'task', comment: Comment) {
+    if (!supabase || !selected) return
+    const updated = prompt('Edit comment', comment.body)
+    if (updated === null || !updated.trim()) return
+    const table = target === 'stage' ? 'stage_comments' : 'task_comments'
+    const { error } = await supabase.from(table).update({ body: updated.trim() }).eq('id', comment.id)
+    if (error) setNotice(error.message); else if (target === 'stage' && selectedStage) await loadStageComments(selectedStage.id); else if (target === 'task' && editingTask) await loadTaskComments(editingTask.id)
+  }
+  async function deleteThreadComment(target: 'stage' | 'task', comment: Comment) {
+    if (!supabase || !selected || !confirm('Delete this comment? This cannot be undone.')) return
+    const table = target === 'stage' ? 'stage_comments' : 'task_comments'
+    const { error } = await supabase.from(table).delete().eq('id', comment.id)
+    if (error) setNotice(error.message); else if (target === 'stage' && selectedStage) await loadStageComments(selectedStage.id); else if (target === 'task' && editingTask) await loadTaskComments(editingTask.id)
   }
   async function updateTask(task: Task, patch: Partial<Task>) {
     if (!supabase || !selected || !canEdit(selected.role)) return
@@ -193,13 +283,12 @@ export default function App() {
       <button className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div><b>{profileName || session.user.email?.split('@')[0] || 'My workspace'}</b><small>Free workspace</small></div><ChevronDown size={15}/></button>
       <div className="nav-label">WORKSPACE</div>
       <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><LayoutDashboard size={17}/> Overview</button>
-      <button className={`nav-item ${tab==='tasks'?'active':''}`} onClick={()=>setTab('tasks')}><ListTodo size={17}/> Tasks <span className="nav-count">{tasks.filter(t=>t.status!=='done').length}</span></button>
-      <button className={`nav-item ${tab==='gantt'?'active':''}`} onClick={()=>setTab('gantt')}><GanttChartSquare size={17}/> Gantt chart</button>
+      <button className={`nav-item ${tab==='stages'||tab==='stage_detail'?'active':''}`} onClick={()=>setTab('stages')}><ListTodo size={17}/> Stages <span className="nav-count">{stages.length}</span></button>
       <button className={`nav-item ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><Users size={17}/> Team & access</button>
       <button className={`nav-item ${tab==='discussion'?'active':''}`} onClick={()=>setTab('discussion')}><MessageCircle size={17}/> Discussion <span className="nav-count">{comments.length}</span></button>
       <button className={`nav-item ${tab==='settings'?'active':''}`} onClick={()=>setTab('settings')}><Settings2 size={17}/> Personalise</button>
       <div className="project-list-head"><span className="nav-label">YOUR PROJECTS</span><button className="icon-button small" onClick={()=>setShowCreate(true)} title="Create project"><Plus size={16}/></button></div>
-      <div className="sidebar-projects">{filteredProjects.slice(0,10).map((p,i)=><button key={p.id} className={`project-nav ${selectedId===p.id?'chosen':''}`} onClick={()=>{setSelectedId(p.id);setTab('overview')}}><span className={`project-dot ${colors[i%colors.length]}`}/><span className="truncate">{p.name}</span></button>)}{filteredProjects.length===0&&<p className="sidebar-empty">No matching projects.</p>}</div>
+      <div className="sidebar-projects">{filteredProjects.slice(0,10).map((p,i)=><button key={p.id} className={`project-nav ${selectedId===p.id?'chosen':''}`} onClick={()=>{setSelectedId(p.id);setTab('stages')}}><span className={`project-dot ${colors[i%colors.length]}`}/><span className="truncate">{p.name}</span></button>)}{filteredProjects.length===0&&<p className="sidebar-empty">No matching projects.</p>}</div>
       <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><CircleHelp size={17}/></div><b>ProjectHub workspace</b><p>Plan work, coordinate people, and keep updates together.</p></div><div className="profile"><div className="profile-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="profile-meta"><b>{profileName || session.user.email}</b><small>Signed in</small></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={16}/></button></div></div>
     </aside>
     <main className="main-panel">
@@ -208,7 +297,7 @@ export default function App() {
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
         {!selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
-          <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&<button className="primary" onClick={()=>setShowTask(true)}><Plus size={16}/> New task</button>}</div></div>
+          <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}</div></div>
           {tab==='overview' && <>
             <div className="stats-grid">
               <Stat icon={<ListTodo size={17}/>} label="OPEN TASKS" value={tasks.filter(t=>t.status!=='done').length.toString()} foot={`${tasks.filter(t=>t.status==='done').length} completed`} tone="purple"/>
@@ -226,8 +315,8 @@ export default function App() {
             </div>
             <Analytics tasks={tasks}/>
           </>}
-          {tab==='tasks' && <section className="panel"><div className="panel-heading"><div><h2>Tasks</h2><p>Create and track the work needed to complete this project.</p></div><div className="inline-actions"><select value={taskFilter} onChange={e=>setTaskFilter(e.target.value as any)}><option value="all">All statuses</option><option value="todo">To do</option><option value="in_progress">In progress</option><option value="done">Done</option></select>{canEdit(selected.role)&&<button className="primary compact" onClick={()=>setShowTask(true)}><Plus size={15}/> Add task</button>}</div></div><div className="kanban">{(['todo','in_progress','done'] as TaskStatus[]).map(status=><div className="kanban-column" key={status}><div className="kanban-title"><span className={`status-dot ${status}`}/><b>{statusLabel(status)}</b><span className="count-pill">{tasks.filter(t=>t.status===status && (taskFilter==='all'||taskFilter===status)).length}</span></div>{tasks.filter(t=>t.status===status && (taskFilter==='all'||taskFilter===status)).map(t=><article className="task-card" key={t.id}><div className="task-card-top"><span className={`priority ${t.priority}`}>{t.priority}</span>{canEdit(selected.role)&&<button className="icon-button small" title="Delete task" onClick={()=>deleteTask(t)}><Trash2 size={14}/></button>}</div><b>{t.title}</b>{t.description&&<p>{t.description}</p>}<div className="task-card-foot">{t.due_date&&<span><CalendarDays size={13}/>{t.due_date}</span>}<select aria-label="Task status" disabled={!canEdit(selected.role)} value={t.status} onChange={e=>updateTask(t,{status:e.target.value as TaskStatus})}><option value="todo">To do</option><option value="in_progress">In progress</option><option value="done">Done</option></select></div></article>)}{canEdit(selected.role)&&<button className="add-task-ghost" onClick={()=>{setTaskStatus(status);setShowTask(true)}}><Plus size={14}/> Add task</button>}</div>)}</div></section>}
-          {tab==='gantt' && <Gantt tasks={tasks} canEdit={canEdit(selected.role)} onStatus={updateTask}/>}
+          {tab==='stages' && <StageOverview stages={stages} tasks={tasks} canManage={canEdit(selected.role)} onOpen={id=>{setSelectedStageId(id);setTab('stage_detail')}} onEdit={openEditStage} onDelete={deleteStage} />}
+          {tab==='stage_detail' && selectedStage && <StageDetail stage={selectedStage} tasks={selectedStageTasks} canManage={canEdit(selected.role)} canComment={canComment(selected.role)} currentUserId={session.user.id} comments={stageComments} commentText={stageCommentText} setCommentText={setStageCommentText} busy={busy} onBack={()=>setTab('stages')} onEdit={()=>openEditStage(selectedStage)} onDelete={()=>deleteStage(selectedStage)} onAddTask={()=>openCreateTask(selectedStage.id)} onTaskClick={openEditTask} onStatus={updateTask} onComment={addStageComment} onEditComment={comment=>editThreadComment('stage',comment)} onDeleteComment={comment=>deleteThreadComment('stage',comment)} />}
           {tab==='team' && <section className="panel"><div className="panel-heading"><div><h2>Team & access</h2><p>Manage people and permissions for this project.</p></div><span className="count-pill">{members.length} members</span></div>{selected.role==='owner'&&<form className="invite-form" onSubmit={inviteMember}><div className="form-grid"><label>Existing user's email<input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="teammate@example.com" required/></label><label>Project role<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as Role)}><option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option></select></label></div><p className="muted tiny">This adds an account that has already registered in this Supabase project. Email invitations to new accounts need a server-side email invitation function.</p><button className="primary compact" disabled={busy}><UserPlus size={15}/>{busy?'Adding…':'Add existing user'}</button></form>}{members.map(m=><div className="member-row" key={m.user_id}><div className="member-avatar">{m.user_id===session.user.id?(session.user.email??'U').slice(0,1).toUpperCase():'U'}</div><div className="member-info"><b>{m.user_id===session.user.id?'You':`Member ${m.user_id.slice(0,8)}`}</b><small>{m.user_id===session.user.id?session.user.email:m.user_id}</small></div>{m.user_id===session.user.id?<span className="role-badge role-owner">{roleLabels[m.role]}</span>:selected.role==='owner'?<><select aria-label="Member role" value={m.role} disabled={m.role==='owner'} onChange={e=>changeMemberRole(m,e.target.value as Role)}><option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option><option value="owner" disabled>Owner</option></select><button className="icon-button" title="Remove member" onClick={()=>removeMember(m)}><Trash2 size={15}/></button></>:<span className="role-badge">{roleLabels[m.role]}</span>}</div>)}{members.length===0&&<Empty icon={<Users/>} title="No team members yet" body="Project members will appear here."/>}</section>}
           {tab==='discussion' && <section className="panel discussion-panel"><div className="panel-heading"><div><h2>Project discussion</h2><p>Share updates and keep everyone in the loop.</p></div><span className="count-pill">{comments.length}</span></div><div className="discussion-list">{comments.length===0?<Empty icon={<MessageCircle/>} title="Start the conversation" body="Share a thought, ask a question, or post an update."/>:comments.map(c=><article className="comment" key={c.id}><div className="comment-avatar">{c.user_id===session.user.id?(session.user.email??'U').slice(0,1).toUpperCase():'M'}</div><div className="comment-body"><div className="comment-meta"><b>{c.user_id===session.user.id?'You':`Member ${c.user_id.slice(0,8)}`}</b><time>{new Date(c.created_at).toLocaleString()}</time></div><p>{c.body}</p></div></article>)}</div>{canComment(selected.role)?<form className="comment-form" onSubmit={addComment}><div className="comment-avatar self">{(session.user.email??'U').slice(0,1).toUpperCase()}</div><div className="comment-compose"><textarea value={commentText} onChange={e=>setCommentText(e.target.value)} placeholder="Write a comment…" rows={2}/><div className="compose-footer"><span>Be kind. Keep it constructive.</span><button className="primary compact" disabled={busy||!commentText.trim()}>Post comment <ArrowLeft size={14} className="send-icon"/></button></div></div></form>:<div className="viewer-note"><Eye size={15}/> You have view-only access.</div>}</section>}
           {tab==='settings' && <Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''}/>}
@@ -237,8 +326,81 @@ export default function App() {
       </div>
     </main>
     {showCreate&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowCreate(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">NEW WORKSPACE</span><h2>Create a project</h2><p>Give your team a dedicated place to work together.</p></div><button className="icon-button" onClick={()=>setShowCreate(false)}><X size={18}/></button></div><form onSubmit={createProject} className="form-stack"><label>Project name<input autoFocus value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="e.g. Website redesign" maxLength={80} required/></label><label>Description <span className="optional">(optional)</span><textarea value={projectDescription} onChange={e=>setProjectDescription(e.target.value)} placeholder="What is this project about?" rows={3} maxLength={500}/></label><div className="modal-note"><LockKeyhole size={15}/> Your new project starts private.</div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowCreate(false)}>Cancel</button><button className="primary" disabled={busy||!projectName.trim()}><Plus size={16}/>{busy?'Creating…':'Create project'}</button></div></form></section></div>}
-    {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT TASK</span><h2>Create a task</h2><p>Add a clear action and optional dates to the project timeline.</p></div><button className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={createTask} className="form-stack"><label>Task title<input autoFocus value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Prepare homepage wireframes" maxLength={160} required/></label><label>Description<textarea value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={2} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Status<select value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To do</option><option value="in_progress">In progress</option><option value="done">Done</option></select></label><label>Priority<select value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input type="date" value={taskStart} onChange={e=>setTaskStart(e.target.value)}/></label><label>Due date<input type="date" value={taskDue} min={taskStart || undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Cancel</button><button className="primary" disabled={busy||!taskTitle.trim()}><Plus size={16}/>{busy?'Saving…':'Create task'}</button></div></form></section></div>}
+    {showProjectEdit&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowProjectEdit(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT SETTINGS</span><h2>Edit project</h2><p>Rename this project or update its description.</p></div><button type="button" className="icon-button" onClick={()=>setShowProjectEdit(false)}><X size={18}/></button></div><form onSubmit={updateProject} className="form-stack"><label>Project name<input autoFocus value={editProjectName} onChange={e=>setEditProjectName(e.target.value)} maxLength={80} required/></label><label>Description<textarea value={editProjectDescription} onChange={e=>setEditProjectDescription(e.target.value)} rows={3} maxLength={500}/></label><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowProjectEdit(false)}>Cancel</button><button className="primary" disabled={busy||!editProjectName.trim()}><Check size={15}/> Save project</button></div></form></section></div>}
+    {showStage&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowStage(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT STAGE</span><h2>{editingStage?'Edit stage':'Create a stage'}</h2><p>Stages group related tasks and summarize their progress.</p></div><button type="button" className="icon-button" onClick={()=>setShowStage(false)}><X size={18}/></button></div><form onSubmit={saveStage} className="form-stack"><label>Stage name<input autoFocus value={stageName} onChange={e=>setStageName(e.target.value)} placeholder="e.g. Flooring" maxLength={160} required/></label><label>Description<textarea value={stageDescription} onChange={e=>setStageDescription(e.target.value)} rows={3} maxLength={5000} placeholder="Describe the purpose or scope of this stage."/></label><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowStage(false)}>Cancel</button><button className="primary" disabled={busy||!stageName.trim()}><Check size={15}/>{busy?'Saving…':editingStage?'Save changes':'Create stage'}</button></div></form></section></div>}
+    {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal task-edit-modal"><div className="modal-head"><div><span className="eyebrow">STAGE TASK</span><h2>{editingTask?'Edit task':'Add a task'}</h2><p>{selectedStage?.name ?? stages.find(s=>s.id===taskStageId)?.name ?? 'Stage'} · update dates, details, status and comments any time.</p></div><button type="button" className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={saveTask} className="form-stack"><label>Task name<input autoFocus disabled={!canEdit(selected.role)} value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Lay tiles" maxLength={160} required/></label><label>Description<textarea disabled={!canEdit(selected.role)} value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={3} maxLength={5000} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Status<select disabled={!canEdit(selected.role)} value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To be started</option><option value="in_progress">Ongoing</option><option value="done">Completed</option></select></label><label>Priority<select disabled={!canEdit(selected.role)} value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input disabled={!canEdit(selected.role)} type="date" value={taskStart} onChange={e=>setTaskStart(e.target.value)}/></label><label>End date<input disabled={!canEdit(selected.role)} type="date" value={taskDue} min={taskStart||undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Close</button>{canEdit(selected.role)&&<button className="primary" disabled={busy||!taskTitle.trim()}><Check size={15}/>{busy?'Saving…':editingTask?'Save task':'Create task'}</button>}{editingTask&&canEdit(selected.role)&&<button type="button" className="outline-button danger-button" onClick={()=>deleteTask(editingTask)}><Trash2 size={14}/> Delete task</button>}</div></form>{editingTask&&<div className="task-modal-comments"><CommentThread title="Task comments" comments={taskComments} canComment={canComment(selected.role)} canManage={canEdit(selected.role)} currentUserId={session.user.id} commentText={taskCommentText} setCommentText={setTaskCommentText} busy={busy} onSubmit={addTaskComment} onEdit={comment=>editThreadComment('task',comment)} onDelete={comment=>deleteThreadComment('task',comment)} placeholder="Comment on this task…"/></div>}</section></div>}
   </div>
+}
+
+function getStageProgress(stageTasks: Task[]) {
+  const today = new Date(); today.setHours(0,0,0,0)
+  const byDay = new Map<string,{todo:number;in_progress:number;done:number;total:number}>()
+  const undated = stageTasks.filter(task=>!task.start_date&&!task.due_date)
+  for (const task of stageTasks.filter(task=>task.start_date||task.due_date)) {
+    const start=parseLocalDate(task.start_date)??parseLocalDate(task.due_date), end=parseLocalDate(task.due_date)??parseLocalDate(task.start_date)
+    if(!start||!end||end<start)continue
+    for(let d=new Date(start);d<=end;d=addDays(d,1)){const key=dateKey(d),point=byDay.get(key)??{todo:0,in_progress:0,done:0,total:0};point[task.status]+=1;point.total+=1;byDay.set(key,point)}
+  }
+  let done=0,inProgress=0,todo=0
+  for(const day of byDay.values()){done+=day.done/day.total;inProgress+=day.in_progress/day.total;todo+=day.todo/day.total}
+  for(const task of undated){if(task.status==='done')done+=1;else if(task.status==='in_progress')inProgress+=1;else todo+=1}
+  const total=done+inProgress+todo,pct=(value:number)=>total?Math.round(value/total*100):0
+  const dated=stageTasks.flatMap(task=>[parseLocalDate(task.start_date),parseLocalDate(task.due_date)]).filter((d):d is Date=>Boolean(d))
+  const start=dated.length?new Date(Math.min(...dated.map(d=>d.getTime()))):null,end=dated.length?new Date(Math.max(...dated.map(d=>d.getTime()))):null
+  const late=stageTasks.filter(task=>task.status!=='done'&&task.due_date&&parseLocalDate(task.due_date)&&parseLocalDate(task.due_date)!<today).map(task=>({task,days:Math.floor((today.getTime()-parseLocalDate(task.due_date)!.getTime())/86400000)})).sort((a,b)=>b.days-a.days)
+  return {completed:pct(done),ongoing:pct(inProgress),toStart:total?100-pct(done)-pct(inProgress):0,total,start,end,late}
+}
+
+function StageOverview({stages,tasks,canManage,onOpen,onEdit,onDelete}:{stages:Stage[];tasks:Task[];canManage:boolean;onOpen:(id:string)=>void;onEdit:(stage:Stage)=>void;onDelete:(stage:Stage)=>void}) {
+  const lateTasks=stages.flatMap(stage=>getStageProgress(tasks.filter(task=>task.stage_id===stage.id)).late.map(item=>({...item,stage}))).sort((a,b)=>b.days-a.days)
+  return <div className="stages-overview"><section className="stage-analytics-panel panel"><div className="panel-heading"><div><h2>Stage completion chart</h2><p>Each scheduled calendar day is shared across tasks running on that day, so overlapping tasks are not double-counted.</p></div><span className="count-pill">{stages.length} stages</span></div>
+    {stages.length===0?<Empty icon={<ListTodo/>} title="No stages yet" body="Create your first stage, then add the tasks and dates that belong to it."/>:<div className="stage-progress-list">{stages.map(stage=>{const childTasks=tasks.filter(task=>task.stage_id===stage.id),p=getStageProgress(childTasks);return <article key={stage.id} className="stage-progress-card">
+      <button className="stage-progress-open" onClick={()=>onOpen(stage.id)} aria-label={`Open stage: ${stage.name}`}><div className="stage-progress-title"><span className="stage-index">{String(stages.findIndex(s=>s.id===stage.id)+1).padStart(2,'0')}</span><span className="stage-name-block"><b>{stage.name}</b><small>{childTasks.length} tasks{p.start&&p.end?` · ${dateKey(p.start)} → ${dateKey(p.end)}`:' · dates not fully planned'}</small></span><span className="stage-open-link">Open stage →</span></div>
+      {stage.description&&<p className="stage-summary-description">{stage.description}</p>}<div className="stage-percent-grid"><span><b>{p.completed}%</b><small>Completed</small></span><span><b>{p.ongoing}%</b><small>Ongoing</small></span><span><b>{p.toStart}%</b><small>To be started</small></span></div><div className="stage-stacked-progress"><span className="stage-segment completed" style={{width:`${p.completed}%`}}/><span className="stage-segment ongoing" style={{width:`${p.ongoing}%`}}/><span className="stage-segment to-start" style={{width:`${p.toStart}%`}}/></div></button>
+      <div className="stage-card-actions">{p.late.length>0?<span className="late-pill"><AlertCircle size={13}/>{p.late.length} lagging</span>:<span className="stage-on-track"><Check size={13}/>{childTasks.length?'No overdue tasks':'No tasks added'}</span>}{canManage&&<><button type="button" className="icon-button small" title="Edit stage" onClick={()=>onEdit(stage)}><Pencil size={14}/></button><button type="button" className="icon-button small danger-icon" title="Delete stage" onClick={()=>onDelete(stage)}><Trash2 size={14}/></button></>}</div>
+    </article>})}</div>}</section>
+    <section className="panel stage-lag-panel"><div className="panel-heading"><div><h2>Schedule watch</h2><p>Incomplete tasks that have passed their planned end date.</p></div><span className={`count-pill ${lateTasks.length?'late-count':''}`}>{lateTasks.length} late</span></div>
+      {lateTasks.length?<div className="stage-lag-list">{lateTasks.map(({stage,task,days})=><button type="button" key={task.id} className="stage-lag-row" onClick={()=>onOpen(stage.id)}><span className="lag-indicator"><AlertCircle size={15}/></span><span><b>{task.title}</b><small>{stage.name} · due {task.due_date}</small></span><strong>{days} {days===1?'day':'days'} late</strong></button>)}</div>:<div className="stage-on-track-empty"><Check size={16}/> No overdue tasks across your stages.</div>}</section>
+    <StageTimeline stages={stages} tasks={tasks} onOpen={onOpen}/></div>
+}
+
+function StageTimeline({stages,tasks,onOpen}:{stages:Stage[];tasks:Task[];onOpen:(id:string)=>void}) {
+  const [rangeDays,setRangeDays]=useState(30),[shift,setShift]=useState(0)
+  const dated=tasks.flatMap(task=>[parseLocalDate(task.start_date),parseLocalDate(task.due_date)]).filter((d):d is Date=>Boolean(d)),today=new Date()
+  today.setHours(0,0,0,0)
+  const earliest=dated.length?new Date(Math.min(...dated.map(d=>d.getTime()))):today,anchor=earliest<today?earliest:today
+  const rangeStart=addDays(anchor,shift*rangeDays),rangeEnd=addDays(rangeStart,rangeDays-1),dayOffset=(d:Date)=>Math.round((d.getTime()-rangeStart.getTime())/86400000)
+  const ticks:{date:Date;label:string;sub:string}[]=[]
+  if(rangeDays<=30)for(let i=0;i<rangeDays;i++){const d=addDays(rangeStart,i);ticks.push({date:d,label:String(d.getDate()),sub:d.toLocaleDateString(undefined,{month:'short'})})}
+  else if(rangeDays<=183)for(let i=0;i<rangeDays;i+=7){const d=addDays(rangeStart,i);ticks.push({date:d,label:d.toLocaleDateString(undefined,{day:'numeric',month:'short'}),sub:'Week'})}
+  else{const d=new Date(rangeStart.getFullYear(),rangeStart.getMonth(),1);while(d<=rangeEnd){const clipped=d<rangeStart?rangeStart:d;ticks.push({date:clipped,label:clipped.toLocaleDateString(undefined,{month:'short'}),sub:String(clipped.getFullYear())});d.setMonth(d.getMonth()+1)}}
+  const tickCount=Math.max(1,ticks.length)
+  return <section className="panel gantt-panel stage-timeline-panel"><div className="panel-heading gantt-heading"><div><h2>Stage Gantt chart</h2><p>Each bar spans the earliest task start to latest task end in that stage. Select a row to open its task timeline.</p></div><GanttChartSquare size={19}/></div>
+    <div className="gantt-toolbar"><div className="gantt-range-buttons">{[{label:'1 week',days:7},{label:'1 month',days:30},{label:'6 months',days:183},{label:'1 year',days:365}].map(r=><button key={r.days} className={`outline-button ${rangeDays===r.days?'selected-range':''}`} onClick={()=>{setRangeDays(r.days);setShift(0)}}>{r.label}</button>)}</div><div className="gantt-nav"><button className="outline-button" onClick={()=>setShift(v=>v-1)}>← Previous</button><button className="outline-button" onClick={()=>setShift(0)}>Reset window</button><button className="outline-button" onClick={()=>setShift(v=>v+1)}>Next →</button></div></div>
+    <div className="gantt-range-caption">{rangeStart.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} – {rangeEnd.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} · {stages.length} stages</div>
+    {!stages.length?<Empty icon={<GanttChartSquare/>} title="No stage timeline yet" body="Create stages and schedule their tasks to see the project timeline."/>:<div className="gantt-scroll"><div className="gantt-canvas" style={{minWidth:`${Math.max(900,tickCount*(rangeDays<=30?42:rangeDays<=183?76:110))}px`}}>
+      <div className="gantt-head"><div className="gantt-task-name gantt-sticky-name">Stage / schedule</div><div className="gantt-days">{ticks.map((tick,i)=><div key={`${dateKey(tick.date)}-${i}`} className="gantt-day" style={{left:`${Math.max(0,dayOffset(tick.date)/rangeDays*100)}%`}}><b>{tick.label}</b><small>{tick.sub}</small></div>)}</div></div>
+      {stages.map(stage=>{const childTasks=tasks.filter(task=>task.stage_id===stage.id),p=getStageProgress(childTasks),rawStart=p.start,rawEnd=p.end;let bar:{left:number;width:number}|null=null;if(rawStart&&rawEnd&&rawEnd>=rangeStart&&rawStart<=rangeEnd){const start=Math.max(0,dayOffset(rawStart)),end=Math.min(rangeDays-1,dayOffset(rawEnd));bar={left:start/rangeDays*100,width:Math.max(.7,(end-start+1)/rangeDays*100)}}
+        return <div className="gantt-row stage-timeline-row" key={stage.id} role="button" tabIndex={0} onClick={()=>onOpen(stage.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpen(stage.id)}}}><div className="gantt-task-name gantt-sticky-name"><b>{stage.name}</b><small>{rawStart?dateKey(rawStart):'Start not set'} → {rawEnd?dateKey(rawEnd):'End not set'}</small><small>{p.completed}% completed · {childTasks.length} tasks</small></div><div className="gantt-track stage-summary-track" style={{backgroundSize:`${100/tickCount}% 100%`}}>{bar&&<div className="gantt-bar stage-summary-bar" title={`${stage.name}: ${p.completed}% complete`} style={{left:`${bar.left}%`,width:`${bar.width}%`,background:`linear-gradient(90deg,#5dd7b0 0% ${p.completed}%,#9a8cff ${p.completed}% 100%)`}}/>}{!bar&&<span className="gantt-outside-label">{childTasks.length?'Dates outside window or incomplete':'Add dated tasks to schedule'}</span>}</div></div>})}
+    </div></div>}</section>
+}
+
+function StageDetail({stage,tasks,canManage,canComment,currentUserId,comments,commentText,setCommentText,busy,onBack,onEdit,onDelete,onAddTask,onTaskClick,onStatus,onComment,onEditComment,onDeleteComment}:{stage:Stage;tasks:Task[];canManage:boolean;canComment:boolean;currentUserId:string;comments:Comment[];commentText:string;setCommentText:(value:string)=>void;busy:boolean;onBack:()=>void;onEdit:()=>void;onDelete:()=>void;onAddTask:()=>void;onTaskClick:(task:Task)=>void;onStatus:(task:Task,patch:Partial<Task>)=>void;onComment:(event:FormEvent)=>void;onEditComment:(comment:Comment)=>void;onDeleteComment:(comment:Comment)=>void}) {
+  const p=getStageProgress(tasks)
+  return <div className="stage-detail-page"><div className="stage-detail-heading"><button type="button" className="outline-button" onClick={onBack}><ArrowLeft size={14}/> All stages</button><div className="stage-detail-title"><span className="eyebrow">STAGE DETAILS</span><h2>{stage.name}</h2><p>{stage.description||'No stage description added yet.'}</p></div><div className="stage-detail-actions">{canManage&&<><button type="button" className="outline-button" onClick={onEdit}><Pencil size={14}/> Edit stage</button><button type="button" className="outline-button danger-button" onClick={onDelete}><Trash2 size={14}/> Delete stage</button></>}</div></div>
+    <div className="stage-detail-stats"><div className="stage-detail-stat"><small>COMPLETED</small><b>{p.completed}%</b><div className="stage-mini-track"><i className="completed" style={{width:`${p.completed}%`}}/></div></div><div className="stage-detail-stat"><small>ONGOING</small><b>{p.ongoing}%</b><div className="stage-mini-track"><i className="ongoing" style={{width:`${p.ongoing}%`}}/></div></div><div className="stage-detail-stat"><small>TO BE STARTED</small><b>{p.toStart}%</b><div className="stage-mini-track"><i className="to-start" style={{width:`${p.toStart}%`}}/></div></div></div>
+    <Gantt tasks={tasks} canEdit={canManage} onStatus={onStatus} onTaskClick={onTaskClick}/>
+    <section className="panel stage-task-list-panel"><div className="panel-heading"><div><h2>Tasks in {stage.name}</h2><p>Select a task to edit its details, update dates or add comments.</p></div>{canManage&&<button className="primary compact" onClick={onAddTask}><Plus size={14}/> Add task</button>}</div>
+      {!tasks.length?<Empty icon={<ListTodo/>} title="No tasks in this stage" body="Add your first task with start and end dates."/>:<div className="stage-task-list">{tasks.map(task=><button type="button" className="stage-task-row" key={task.id} onClick={()=>onTaskClick(task)}><span className={`status-dot ${task.status}`}/><span className="stage-task-main"><b>{task.title}</b><small>{task.description||'No description'} · {task.start_date||'No start'} → {task.due_date||'No end'}</small></span><span className={`stage-task-status ${task.status}`}>{statusLabel(task.status)}</span><Pencil size={14}/></button>)}</div>}</section>
+    <CommentThread title="Stage comments" comments={comments} canComment={canComment} canManage={canManage} currentUserId={currentUserId} commentText={commentText} setCommentText={setCommentText} busy={busy} onSubmit={onComment} onEdit={onEditComment} onDelete={onDeleteComment} placeholder="Add an update or comment about this stage…"/>
+  </div>
+}
+
+function CommentThread({title,comments,canComment,canManage,currentUserId,commentText,setCommentText,busy,onSubmit,onEdit,onDelete,placeholder}:{title:string;comments:Comment[];canComment:boolean;canManage:boolean;currentUserId:string;commentText:string;setCommentText:(value:string)=>void;busy:boolean;onSubmit:(event:FormEvent)=>void;onEdit:(comment:Comment)=>void;onDelete:(comment:Comment)=>void;placeholder:string}) {
+  return <section className="panel thread-panel"><div className="panel-heading"><div><h2>{title}</h2><p>Comments are saved with the stage or task and visible to project members.</p></div><span className="count-pill">{comments.length}</span></div>
+    <div className="discussion-list">{comments.length===0?<Empty icon={<MessageCircle/>} title="No comments yet" body="Start the conversation with a stage or task update."/>:comments.map(comment=><article className="comment" key={comment.id}><div className="comment-avatar">{comment.user_id===currentUserId?'Y':'M'}</div><div className="comment-body"><div className="comment-meta"><b>{comment.user_id===currentUserId?'You':`Member ${comment.user_id.slice(0,8)}`}</b><time>{new Date(comment.created_at).toLocaleString()}</time><span className="thread-actions">{(comment.user_id===currentUserId||canManage)&&<button type="button" className="icon-button small" title="Edit comment" onClick={()=>onEdit(comment)}><Pencil size={12}/></button>}{(comment.user_id===currentUserId||canManage)&&<button type="button" className="icon-button small danger-icon" title="Delete comment" onClick={()=>onDelete(comment)}><Trash2 size={12}/></button>}</span></div><p>{comment.body}</p></div></article>)}</div>
+    {canComment?<form className="comment-form" onSubmit={onSubmit}><div className="comment-avatar self">Y</div><div className="comment-compose"><textarea value={commentText} onChange={e=>setCommentText(e.target.value)} placeholder={placeholder} rows={2} maxLength={5000}/><div className="compose-footer"><span>Keep the project team informed.</span><button className="primary compact" disabled={busy||!commentText.trim()}>Post comment <ArrowLeft size={13} className="send-icon"/></button></div></div></form>:<div className="viewer-note"><Eye size={15}/> You have view-only access.</div>}
+  </section>
 }
 
 function statusLabel(status: TaskStatus) { return status === 'todo' ? 'To do' : status === 'in_progress' ? 'In progress' : 'Done' }
@@ -262,7 +424,7 @@ function dateKey(date: Date) {
   return `${y}-${m}-${d}`
 }
 function addDays(date: Date, days: number) { const d = new Date(date); d.setDate(d.getDate() + days); return d }
-function Gantt({ tasks, canEdit, onStatus }: { tasks: Task[]; canEdit: boolean; onStatus: (t: Task, p: Partial<Task>)=>void }) {
+function Gantt({ tasks, canEdit, onStatus, onTaskClick }: { tasks: Task[]; canEdit: boolean; onStatus: (t: Task, p: Partial<Task>)=>void; onTaskClick?: (task: Task)=>void }) {
   const [rangeDays, setRangeDays] = useState(30)
   const [shift, setShift] = useState(0)
   const datedValues = tasks.flatMap(t => [parseLocalDate(t.start_date), parseLocalDate(t.due_date)]).filter((d): d is Date => Boolean(d))
@@ -297,7 +459,7 @@ function Gantt({ tasks, canEdit, onStatus }: { tasks: Task[]; canEdit: boolean; 
           const start=Math.max(0,dayOffset(rawStart)), end=Math.min(rangeDays-1,dayOffset(rawEnd))
           bar={left:start/rangeDays*100,width:Math.max(0.7,(end-start+1)/rangeDays*100)}
         }
-        return <div className="gantt-row" key={t.id}><div className="gantt-task-name gantt-sticky-name"><b>{t.title}</b><small>{t.start_date ?? 'Start not set'} → {t.due_date ?? 'Due date not set'}</small></div><div className="gantt-track" style={{backgroundSize:`${100/tickCount}% 100%`}}>{bar&&<div className={`gantt-bar ${t.status}`} title={`${t.title}: ${t.start_date ?? t.due_date ?? 'unscheduled'} → ${t.due_date ?? t.start_date ?? 'unscheduled'}`} style={{left:`${bar.left}%`,width:`${bar.width}%`}}/>}{!bar&&<span className="gantt-outside-label">{rawStart ? (rawStart > rangeEnd ? 'After this window' : 'Before this window') : 'Add dates to schedule'}</span>}</div></div>
+        return <div className="gantt-row task-gantt-row" key={t.id} role={onTaskClick?'button':undefined} tabIndex={onTaskClick?0:undefined} onClick={()=>onTaskClick?.(t)} onKeyDown={e=>{if(onTaskClick&&(e.key==='Enter'||e.key===' ')){e.preventDefault();onTaskClick(t)}}}><div className="gantt-task-name gantt-sticky-name"><b>{t.title}</b><small>{t.start_date ?? 'Start not set'} → {t.due_date ?? 'Due date not set'}</small></div><div className="gantt-track" style={{backgroundSize:`${100/tickCount}% 100%`}}>{bar&&<div className={`gantt-bar ${t.status}`} title={`${t.title}: ${t.start_date ?? t.due_date ?? 'unscheduled'} → ${t.due_date ?? t.start_date ?? 'unscheduled'}`} style={{left:`${bar.left}%`,width:`${bar.width}%`}}/>}{!bar&&<span className="gantt-outside-label">{rawStart ? (rawStart > rangeEnd ? 'After this window' : 'Before this window') : 'Add dates to schedule'}</span>}</div></div>
       })}
     </div></div>}
     {tasks.length>0&&<div className="gantt-legend"><span><i className="todo-key"/> To do</span><span><i className="progress-key"/> In progress</span><span><i className="done-key"/> Done</span><span className="muted">Bars outside the selected date window are labelled; use Previous / Next to navigate.</span></div>}
