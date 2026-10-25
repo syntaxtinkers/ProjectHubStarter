@@ -180,6 +180,14 @@ export default function App() {
   }
   function openNewStage() { setEditingStage(null); setStageName(''); setStageDescription(''); setStageStart(''); setStageEnd(''); setShowStage(true) }
   function openEditStage(stage: Stage) { setEditingStage(stage); setStageName(stage.name); setStageDescription(stage.description ?? ''); setStageStart(stage.start_date ?? ''); setStageEnd(stage.end_date ?? ''); setShowStage(true) }
+  async function renameStageOnly(stage: Stage) {
+    if (!supabase || !selected || !canEdit(selected.role)) return
+    const nextName = prompt('Edit stage name', stage.name)
+    if (nextName === null || !nextName.trim() || nextName.trim() === stage.name) return
+    const { error } = await supabase.from('project_stages').update({ name: nextName.trim() }).eq('id', stage.id).eq('project_id', selected.id)
+    if (error) setNotice('Could not rename stage: ' + error.message)
+    else { setStages(current => current.map(item => item.id === stage.id ? { ...item, name: nextName.trim() } : item)); setNotice('Stage name updated.') }
+  }
   async function saveStage(e: FormEvent) {
     e.preventDefault(); if (!supabase || !selected || !session?.user || !canEdit(selected.role) || !stageName.trim()) return
     setBusy(true); setNotice('')
@@ -454,7 +462,7 @@ function StageOverview({stages,tasks,canManage,onOpen,onEdit,onDelete,onAddStage
         <td className={`stage-progress-cell ${progressClass(p.ongoing)}`}>{list.length?p.ongoing+'%':'—'}</td>
         <td className={`stage-progress-cell ${progressClass(p.toStart)}`}>{list.length?p.toStart+'%':'—'}</td>
         <td className="sheet-description">{stage.description||'—'}</td>
-        <td><div className="sheet-actions"><button className="icon-button small" title="Edit stage" onClick={()=>onEdit(stage)}><Pencil size={13}/></button><button className="icon-button small" title="Open stage" onClick={()=>onOpen(stage.id)}><Eye size={13}/></button>{canManage&&<button className="icon-button small danger-icon" title="Delete stage" onClick={()=>onDelete(stage)}><Trash2 size={13}/></button>}</div></td>
+        <td><div className="sheet-actions"><button className="icon-button small" title="Open stage" onClick={()=>onOpen(stage.id)}><Eye size={13}/></button>{canManage&&<button className="icon-button small danger-icon" title="Delete stage" onClick={()=>onDelete(stage)}><Trash2 size={13}/></button>}</div></td>
       </tr>})}
       {canManage&&<>{adding?<tr className="stage-new-row"><td><input autoFocus className="task-grid-editor" placeholder="Stage name" value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))}/></td><td><input className="task-grid-editor" type="date" max={draft.end_date||undefined} value={draft.start_date} onChange={e=>setDraft(d=>({...d,start_date:e.target.value}))}/></td><td><input className="task-grid-editor" type="date" min={draft.start_date||undefined} value={draft.end_date} onChange={e=>setDraft(d=>({...d,end_date:e.target.value}))}/></td><td>—</td><td colSpan={3}>Progress is calculated after saving</td><td><input className="task-grid-editor" placeholder="Description" value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))}/></td><td><div className="sheet-actions"><button type="button" className="icon-button small" title="Save stage" onClick={()=>{void(async()=>{const ok=await onCreateStageInline(draft);if(ok){setAdding(false);setDraft({name:'',start_date:'',end_date:'',description:''})}})()}}><Check size={13}/></button><button type="button" className="icon-button small" title="Cancel" onClick={()=>setAdding(false)}><X size={13}/></button></div></td></tr>:<tr className="sheet-add-row"><td colSpan={9}><button type="button" className="sheet-add-button" onClick={()=>setAdding(true)}><Plus size={15}/> Add stage</button></td></tr>}</>}
       </tbody></table></div>
