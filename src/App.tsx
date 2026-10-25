@@ -4,18 +4,20 @@ import {
   Activity, ArrowLeft, CalendarDays, Check, ChevronDown, CircleHelp, Command, FolderKanban,
   LayoutDashboard, LogOut, MessageCircle, Plus, Search, Settings2, ShieldCheck, Users, X,
   LockKeyhole, Eye, Pencil, LoaderCircle, ListTodo, GanttChartSquare, Palette, Trash2,
-  CircleCheck, Clock3, AlertCircle, RefreshCw, UserPlus, SlidersHorizontal, Filter
+  CircleCheck, Clock3, AlertCircle, RefreshCw, UserPlus, SlidersHorizontal, Filter, FileDown, ChevronUp
 } from 'lucide-react'
 import { isConfigured, supabase } from './lib/supabase'
 import CalendarView from './CalendarView'
 import { exportProjectExcel } from './exportProjectExcel'
+import { exportProjectPdf } from './exportProjectPdf'
 
 type Project = { id: string; name: string; description: string | null; created_at: string; role?: Role }
 type Comment = { id: string; body: string; created_at: string; user_id: string }
 type Role = 'owner' | 'editor' | 'commenter' | 'viewer'
 type TaskStatus = 'todo' | 'in_progress' | 'done'
 type Stage = { id: string; project_id: string; name: string; description: string | null; start_date: string | null; end_date: string | null; created_by: string; created_at: string }
-type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; assigned_to: string | null; created_by: string; created_at: string }
+type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
+type TaskCustomField = { id: string; project_id: string; name: string; sort_order: number; created_by: string; created_at: string }
 type Member = { user_id: string; role: Role; joined_at: string; email?: string }
 type Tab = 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'settings'
 
@@ -37,6 +39,7 @@ export default function App() {
   const [comments, setComments] = useState<Comment[]>([])
   const [stages, setStages] = useState<Stage[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [taskFields, setTaskFields] = useState<TaskCustomField[]>([])
   const [stageComments, setStageComments] = useState<Comment[]>([])
   const [taskComments, setTaskComments] = useState<Comment[]>([])
   const [stageCommentText, setStageCommentText] = useState('')
@@ -104,7 +107,7 @@ export default function App() {
   }, [])
   useEffect(() => {
     if (session?.user) void loadProjects()
-    else { setProjects([]); setStages([]); setTasks([]); setSelectedStageId(null); setSelectedId(null) }
+    else { setProjects([]); setStages([]); setTasks([]); setTaskFields([]); setSelectedStageId(null); setSelectedId(null) }
   }, [session?.user?.id])
   useEffect(() => {
     if (selectedId && session?.user) void loadProjectData(selectedId)
@@ -124,17 +127,20 @@ export default function App() {
   }
   async function loadProjectData(projectId: string) {
     if (!supabase) return
-    const [c, t, m, s] = await Promise.all([
+    const [c, t, m, s, f] = await Promise.all([
       supabase.from('project_comments').select('id,body,created_at,user_id').eq('project_id', projectId).order('created_at', { ascending: true }),
       supabase.from('project_tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
       supabase.from('project_members').select('user_id,role,joined_at').eq('project_id', projectId).order('joined_at', { ascending: true }),
-      supabase.from('project_stages').select('*').eq('project_id', projectId).order('created_at', { ascending: true })
+      supabase.from('project_stages').select('*').eq('project_id', projectId).order('created_at', { ascending: true }),
+      supabase.from('project_task_custom_fields').select('*').eq('project_id', projectId).order('sort_order', { ascending: true }).order('created_at', { ascending: true })
     ])
     if (c.error) setNotice(`Comments: ${c.error.message}`); else setComments(c.data ?? [])
     if (t.error) { if (!t.error.message.toLowerCase().includes('does not exist')) setNotice(`Tasks: ${t.error.message}`) } else setTasks(t.data ?? [])
     if (m.error) setNotice(`Members: ${m.error.message}`); else setMembers(m.data ?? [])
     if (s.error) setNotice(`Stages could not load. Apply supabase/rebuild_stages.sql first: ${s.error.message}`)
     else { const rows = (s.data ?? []) as Stage[]; setStages(rows); setSelectedStageId(current => current && rows.some(stage => stage.id === current) ? current : rows[0]?.id ?? null) }
+    if (f.error) { if (!f.error.message.toLowerCase().includes('does not exist')) setNotice('Custom task columns could not load: ' + f.error.message); setTaskFields([]) }
+    else setTaskFields((f.data ?? []) as TaskCustomField[])
   }
   async function loadStageComments(stageId: string) {
     if (!supabase) return
@@ -252,6 +258,15 @@ export default function App() {
     const { error } = await supabase.from('project_tasks').update(patch).eq('id', task.id)
     if (error) setNotice(error.message); else await loadProjectData(selected.id)
   }
+  async function addTaskField(rawName: string) {
+    if (!supabase || !selected || !session?.user || !canEdit(selected.role)) return
+    const name = rawName.trim()
+    if (!name) return
+    if (taskFields.some(field => field.name.toLowerCase() === name.toLowerCase())) { setNotice('A column with that name already exists.'); return }
+    const { data, error } = await supabase.from('project_task_custom_fields').insert({ project_id: selected.id, name, sort_order: taskFields.length, created_by: session.user.id }).select('*').single()
+    if (error) setNotice('Could not add custom column: ' + error.message)
+    else { setTaskFields(current => [...current, data as TaskCustomField]); setNotice('Added the “' + name + '” column to this project.') }
+  }
   async function deleteTask(task: Task) {
     if (!supabase || !selected || !canEdit(selected.role) || !confirm(`Delete "${task.title}"? This also deletes its task comments.`)) return
     const { error } = await supabase.from('project_tasks').delete().eq('id', task.id)
@@ -316,7 +331,7 @@ export default function App() {
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
         {!selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
-          <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button>{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}</div></div>
+          <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}</div></div>
           {tab==='overview' && <>
             <div className="stats-grid">
               <Stat icon={<ListTodo size={17}/>} label="OPEN TASKS" value={tasks.filter(t=>t.status!=='done').length.toString()} foot={`${tasks.filter(t=>t.status==='done').length} completed`} tone="purple"/>
@@ -336,7 +351,7 @@ export default function App() {
           </>}
           {tab==='stages' && <StageOverview stages={stages} tasks={tasks} canManage={canEdit(selected.role)} onOpen={id=>{setSelectedStageId(id);setTab('stage_detail')}} onEdit={openEditStage} onDelete={deleteStage} />}
           {tab==='calendar' && <CalendarView stages={stages} tasks={tasks} month={calendarMonth} setMonth={setCalendarMonth} onOpenStage={id=>{setSelectedStageId(id);setTab('stage_detail')}} />}
-          {tab==='stage_detail' && selectedStage && <StageDetail stage={selectedStage} tasks={selectedStageTasks} canManage={canEdit(selected.role)} canComment={canComment(selected.role)} currentUserId={session.user.id} comments={stageComments} commentText={stageCommentText} setCommentText={setStageCommentText} busy={busy} onBack={()=>setTab('stages')} onEdit={()=>openEditStage(selectedStage)} onDelete={()=>deleteStage(selectedStage)} onAddTask={()=>openCreateTask(selectedStage.id)} onTaskClick={openEditTask} onStatus={updateTask} onComment={addStageComment} onEditComment={comment=>editThreadComment('stage',comment)} onDeleteComment={comment=>deleteThreadComment('stage',comment)} />}
+          {tab==='stage_detail' && selectedStage && <StageDetail stage={selectedStage} tasks={selectedStageTasks} allProjectTasks={tasks} taskFields={taskFields} canManage={canEdit(selected.role)} canComment={canComment(selected.role)} currentUserId={session.user.id} comments={stageComments} commentText={stageCommentText} setCommentText={setStageCommentText} busy={busy} onBack={()=>setTab('stages')} onEdit={()=>openEditStage(selectedStage)} onDelete={()=>deleteStage(selectedStage)} onAddTask={()=>openCreateTask(selectedStage.id)} onTaskClick={openEditTask} onStatus={updateTask} onSaveTask={updateTask} onAddTaskField={addTaskField} onComment={addStageComment} onEditComment={comment=>editThreadComment('stage',comment)} onDeleteComment={comment=>deleteThreadComment('stage',comment)} />}
           {tab==='team' && <section className="panel"><div className="panel-heading"><div><h2>Team & access</h2><p>Manage people and permissions for this project.</p></div><span className="count-pill">{members.length} members</span></div>{selected.role==='owner'&&<form className="invite-form" onSubmit={inviteMember}><div className="form-grid"><label>Existing user's email<input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="teammate@example.com" required/></label><label>Project role<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as Role)}><option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option></select></label></div><p className="muted tiny">This adds an account that has already registered in this Supabase project. Email invitations to new accounts need a server-side email invitation function.</p><button className="primary compact" disabled={busy}><UserPlus size={15}/>{busy?'Adding…':'Add existing user'}</button></form>}{members.map(m=><div className="member-row" key={m.user_id}><div className="member-avatar">{m.user_id===session.user.id?(session.user.email??'U').slice(0,1).toUpperCase():'U'}</div><div className="member-info"><b>{m.user_id===session.user.id?'You':`Member ${m.user_id.slice(0,8)}`}</b><small>{m.user_id===session.user.id?session.user.email:m.user_id}</small></div>{m.user_id===session.user.id?<span className="role-badge role-owner">{roleLabels[m.role]}</span>:selected.role==='owner'?<><select aria-label="Member role" value={m.role} disabled={m.role==='owner'} onChange={e=>changeMemberRole(m,e.target.value as Role)}><option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option><option value="owner" disabled>Owner</option></select><button className="icon-button" title="Remove member" onClick={()=>removeMember(m)}><Trash2 size={15}/></button></>:<span className="role-badge">{roleLabels[m.role]}</span>}</div>)}{members.length===0&&<Empty icon={<Users/>} title="No team members yet" body="Project members will appear here."/>}</section>}
           {tab==='discussion' && <section className="panel discussion-panel"><div className="panel-heading"><div><h2>Project discussion</h2><p>Share updates and keep everyone in the loop.</p></div><span className="count-pill">{comments.length}</span></div><div className="discussion-list">{comments.length===0?<Empty icon={<MessageCircle/>} title="Start the conversation" body="Share a thought, ask a question, or post an update."/>:comments.map(c=><article className="comment" key={c.id}><div className="comment-avatar">{c.user_id===session.user.id?(session.user.email??'U').slice(0,1).toUpperCase():'M'}</div><div className="comment-body"><div className="comment-meta"><b>{c.user_id===session.user.id?'You':`Member ${c.user_id.slice(0,8)}`}</b><time>{new Date(c.created_at).toLocaleString()}</time></div><p>{c.body}</p></div></article>)}</div>{canComment(selected.role)?<form className="comment-form" onSubmit={addComment}><div className="comment-avatar self">{(session.user.email??'U').slice(0,1).toUpperCase()}</div><div className="comment-compose"><textarea value={commentText} onChange={e=>setCommentText(e.target.value)} placeholder="Write a comment…" rows={2}/><div className="compose-footer"><span>Be kind. Keep it constructive.</span><button className="primary compact" disabled={busy||!commentText.trim()}>Post comment <ArrowLeft size={14} className="send-icon"/></button></div></div></form>:<div className="viewer-note"><Eye size={15}/> You have view-only access.</div>}</section>}
           {tab==='settings' && <Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''}/>}
@@ -385,7 +400,7 @@ function StageOverview({stages,tasks,canManage,onOpen,onEdit,onDelete}:{stages:S
 }
 
 function StageTimeline({stages,tasks,onOpen}:{stages:Stage[];tasks:Task[];onOpen:(id:string)=>void}) {
-  const [rangeDays,setRangeDays]=useState(30),[shift,setShift]=useState(0)
+  const [rangeDays,setRangeDays]=useState(30),[shift,setShift]=useState(0),[collapsed,setCollapsed]=useState(false)
   const dated=[...stages.flatMap(stage=>[parseLocalDate(stage.start_date),parseLocalDate(stage.end_date)]),...tasks.flatMap(task=>[parseLocalDate(task.start_date),parseLocalDate(task.due_date)])].filter((d):d is Date=>Boolean(d)),today=new Date()
   today.setHours(0,0,0,0)
   const earliest=dated.length?new Date(Math.min(...dated.map(d=>d.getTime()))):today,anchor=earliest<today?earliest:today
@@ -395,7 +410,7 @@ function StageTimeline({stages,tasks,onOpen}:{stages:Stage[];tasks:Task[];onOpen
   else if(rangeDays<=183)for(let i=0;i<rangeDays;i+=7){const d=addDays(rangeStart,i);ticks.push({date:d,label:d.toLocaleDateString(undefined,{day:'numeric',month:'short'}),sub:'Week'})}
   else{const d=new Date(rangeStart.getFullYear(),rangeStart.getMonth(),1);while(d<=rangeEnd){const clipped=d<rangeStart?rangeStart:d;ticks.push({date:clipped,label:clipped.toLocaleDateString(undefined,{month:'short'}),sub:String(clipped.getFullYear())});d.setMonth(d.getMonth()+1)}}
   const tickCount=Math.max(1,ticks.length)
-  return <section className="panel gantt-panel stage-timeline-panel"><div className="panel-heading gantt-heading"><div><h2>Stage Gantt chart</h2><p>Each bar spans the earliest task start to latest task end in that stage. Select a row to open its task timeline.</p></div><GanttChartSquare size={19}/></div>
+  return <section className={"panel gantt-panel stage-timeline-panel "+(collapsed?"section-collapsed":"")}><div className="panel-heading gantt-heading"><div><h2>Stage Gantt chart</h2><p>Each bar spans the earliest task start to latest task end in that stage. Select a row to open its task timeline.</p></div><GanttChartSquare size={19}/><button type="button" className="icon-button" aria-label={collapsed?"Show Stage Gantt chart":"Hide Stage Gantt chart"} onClick={()=>setCollapsed(v=>!v)}>{collapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div>
     <div className="gantt-toolbar"><div className="gantt-range-buttons">{[{label:'1 week',days:7},{label:'1 month',days:30},{label:'6 months',days:183},{label:'1 year',days:365}].map(r=><button key={r.days} className={`outline-button ${rangeDays===r.days?'selected-range':''}`} onClick={()=>{setRangeDays(r.days);setShift(0)}}>{r.label}</button>)}</div><div className="gantt-nav"><button className="outline-button" onClick={()=>setShift(v=>v-1)}>← Previous</button><button className="outline-button" onClick={()=>setShift(0)}>Reset window</button><button className="outline-button" onClick={()=>setShift(v=>v+1)}>Next →</button></div></div>
     <div className="gantt-range-caption">{rangeStart.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} – {rangeEnd.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} · {stages.length} stages</div>
     {!stages.length?<Empty icon={<GanttChartSquare/>} title="No stage timeline yet" body="Create stages and schedule their tasks to see the project timeline."/>:<div className="gantt-scroll"><div className="gantt-canvas" style={{minWidth:`${Math.max(900,tickCount*(rangeDays<=30?42:rangeDays<=183?76:110))}px`}}>
@@ -405,24 +420,62 @@ function StageTimeline({stages,tasks,onOpen}:{stages:Stage[];tasks:Task[];onOpen
     </div></div>}</section>
 }
 
-function StageDetail({stage,tasks,canManage,canComment,currentUserId,comments,commentText,setCommentText,busy,onBack,onEdit,onDelete,onAddTask,onTaskClick,onStatus,onComment,onEditComment,onDeleteComment}:{stage:Stage;tasks:Task[];canManage:boolean;canComment:boolean;currentUserId:string;comments:Comment[];commentText:string;setCommentText:(value:string)=>void;busy:boolean;onBack:()=>void;onEdit:()=>void;onDelete:()=>void;onAddTask:()=>void;onTaskClick:(task:Task)=>void;onStatus:(task:Task,patch:Partial<Task>)=>void;onComment:(event:FormEvent)=>void;onEditComment:(comment:Comment)=>void;onDeleteComment:(comment:Comment)=>void}) {
+function StageDetail({stage,tasks,allProjectTasks,taskFields,canManage,canComment,currentUserId,comments,commentText,setCommentText,busy,onBack,onEdit,onDelete,onAddTask,onTaskClick,onStatus,onSaveTask,onAddTaskField,onComment,onEditComment,onDeleteComment}:{stage:Stage;tasks:Task[];allProjectTasks:Task[];taskFields:TaskCustomField[];canManage:boolean;canComment:boolean;currentUserId:string;comments:Comment[];commentText:string;setCommentText:(value:string)=>void;busy:boolean;onBack:()=>void;onEdit:()=>void;onDelete:()=>void;onAddTask:()=>void;onTaskClick:(task:Task)=>void;onStatus:(task:Task,patch:Partial<Task>)=>void;onSaveTask:(task:Task,patch:Partial<Task>)=>void;onAddTaskField:(name:string)=>void;onComment:(event:FormEvent)=>void;onEditComment:(comment:Comment)=>void;onDeleteComment:(comment:Comment)=>void}) {
   const p=getStageProgress(tasks)
-  return <div className="stage-detail-page"><div className="stage-detail-heading"><button type="button" className="outline-button" onClick={onBack}><ArrowLeft size={14}/> All stages</button><div className="stage-detail-title"><span className="eyebrow">STAGE DETAILS</span><h2>{stage.name}</h2><p>{stage.description||'No stage description added yet.'}</p></div><div className="stage-detail-actions">{canManage&&<><button type="button" className="outline-button" onClick={onEdit}><Pencil size={14}/> Edit stage</button><button type="button" className="outline-button danger-button" onClick={onDelete}><Trash2 size={14}/> Delete stage</button></>}</div></div>
-    <div className="stage-detail-stats"><div className="stage-detail-stat"><small>COMPLETED</small><b>{p.completed}%</b><div className="stage-mini-track"><i className="completed" style={{width:`${p.completed}%`}}/></div></div><div className="stage-detail-stat"><small>ONGOING</small><b>{p.ongoing}%</b><div className="stage-mini-track"><i className="ongoing" style={{width:`${p.ongoing}%`}}/></div></div><div className="stage-detail-stat"><small>TO BE STARTED</small><b>{p.toStart}%</b><div className="stage-mini-track"><i className="to-start" style={{width:`${p.toStart}%`}}/></div></div></div>
+  const [statsCollapsed,setStatsCollapsed]=useState(false)
+  const [detailsCollapsed,setDetailsCollapsed]=useState(false)
+  return <div className="stage-detail-page">
+    <div className="stage-detail-heading"><button type="button" className="outline-button" onClick={onBack}><ArrowLeft size={14}/> All stages</button><div className="stage-detail-title"><span className="eyebrow">STAGE DETAILS</span><h2>{stage.name}</h2><p>{stage.description||'No stage description added yet.'}</p></div><div className="stage-detail-actions">{canManage&&<><button type="button" className="outline-button" onClick={onEdit}><Pencil size={14}/> Edit stage</button><button type="button" className="outline-button danger-button" onClick={onDelete}><Trash2 size={14}/> Delete stage</button></>}</div></div>
+    <section className={'panel stage-detail-stats-panel '+(statsCollapsed?'section-collapsed':'')}>
+      <div className="panel-heading"><div><h2>Stage progress</h2><p>Completion, ongoing work and tasks not yet started.</p></div><button type="button" className="icon-button" aria-label={statsCollapsed?'Show stage progress':'Hide stage progress'} onClick={()=>setStatsCollapsed(v=>!v)}>{statsCollapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div>
+      {!statsCollapsed&&<div className="stage-detail-stats"><div className="stage-detail-stat"><small>COMPLETED</small><b>{p.completed}%</b><div className="stage-mini-track"><i className="completed" style={{width:p.completed+'%'}}/></div></div><div className="stage-detail-stat"><small>ONGOING</small><b>{p.ongoing}%</b><div className="stage-mini-track"><i className="ongoing" style={{width:p.ongoing+'%'}}/></div></div><div className="stage-detail-stat"><small>TO BE STARTED</small><b>{p.toStart}%</b><div className="stage-mini-track"><i className="to-start" style={{width:p.toStart+'%'}}/></div></div></div>}
+    </section>
     <Gantt tasks={tasks} canEdit={canManage} onStatus={onStatus} onTaskClick={onTaskClick}/>
-    <section className="panel stage-task-list-panel"><div className="panel-heading"><div><h2>Tasks in {stage.name}</h2><p>Select a task to edit its details, update dates or add comments.</p></div>{canManage&&<button className="primary compact" onClick={onAddTask}><Plus size={14}/> Add task</button>}</div>
-      {!tasks.length?<Empty icon={<ListTodo/>} title="No tasks in this stage" body="Add your first task with start and end dates."/>:<div className="stage-task-list">{tasks.map(task=><button type="button" className="stage-task-row" key={task.id} onClick={()=>onTaskClick(task)}><span className={`status-dot ${task.status}`}/><span className="stage-task-main"><b>{task.title}</b><small>{task.description||'No description'} · {task.start_date||'No start'} → {task.due_date||'No end'}</small></span><span className={`stage-task-status ${task.status}`}>{statusLabel(task.status)}</span><Pencil size={14}/></button>)}</div>}</section>
+    <section className={'panel stage-task-list-panel '+(detailsCollapsed?'section-collapsed':'')}>
+      <div className="panel-heading"><div><h2>Task details</h2><p>Edit task values directly in the grid. Changes are saved to the project.</p></div><div className="panel-heading-actions">{canManage&&<button className="primary compact" onClick={onAddTask}><Plus size={14}/> Add task</button>}<button type="button" className="icon-button" aria-label={detailsCollapsed?'Show task details':'Hide task details'} onClick={()=>setDetailsCollapsed(v=>!v)}>{detailsCollapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div></div>
+      {!detailsCollapsed&&(!tasks.length?<Empty icon={<ListTodo/>} title="No tasks in this stage" body="Add your first task with start and end dates."/>:<TaskGrid stage={stage} tasks={tasks} allProjectTasks={allProjectTasks} fields={taskFields} canEdit={canManage} onTaskClick={onTaskClick} onSaveTask={onSaveTask} onAddField={onAddTaskField}/>)}
+    </section>
     <CommentThread title="Stage comments" comments={comments} canComment={canComment} canManage={canManage} currentUserId={currentUserId} commentText={commentText} setCommentText={setCommentText} busy={busy} onSubmit={onComment} onEdit={onEditComment} onDelete={onDeleteComment} placeholder="Add an update or comment about this stage…"/>
   </div>
 }
 
+function TaskGrid({stage,tasks,allProjectTasks,fields,canEdit,onTaskClick,onSaveTask,onAddField}:{stage:Stage;tasks:Task[];allProjectTasks:Task[];fields:TaskCustomField[];canEdit:boolean;onTaskClick:(task:Task)=>void;onSaveTask:(task:Task,patch:Partial<Task>)=>void;onAddField:(name:string)=>void}) {
+  const assigners=[...new Set(allProjectTasks.map(t=>t.assigned_by_name?.trim()).filter((v):v is string=>Boolean(v)))]
+  const assignees=[...new Set(allProjectTasks.map(t=>t.assigned_to_name?.trim()).filter((v):v is string=>Boolean(v)))]
+  const addField=()=>{const name=prompt('Name this new column. It will be available for every task in this project.');if(name?.trim())onAddField(name)}
+  return <div className="task-grid-wrap"><table className="task-grid-table"><thead><tr>
+    <th scope="col" className="task-grid-name-col">Task</th><th scope="col">Start date</th><th scope="col">End date</th><th scope="col">Assigner</th><th scope="col">Assignee</th>
+    {fields.map(field=><th scope="col" key={field.id}>{field.name}</th>)}
+    <th scope="col" className="task-grid-add-col">{canEdit&&<button type="button" className="task-grid-add-field" onClick={addField} aria-label="Add a custom task column" title="Add a column"><Plus size={16}/></button>}</th>
+  </tr></thead><tbody>{tasks.map(task=><tr key={task.id}>
+    <th scope="row" className="task-grid-name-col"><button type="button" className="task-grid-task-name" onClick={()=>onTaskClick(task)}>{task.title}</button><small className={'stage-task-status '+task.status}>{statusLabel(task.status)}</small></th>
+    <td><EditableTaskCell value={task.start_date} type="date" canEdit={canEdit} label={task.title+' start date'} min={stage.start_date||undefined} max={stage.end_date||undefined} onSave={value=>onSaveTask(task,{start_date:value||null})}/></td>
+    <td><EditableTaskCell value={task.due_date} type="date" canEdit={canEdit} label={task.title+' end date'} min={[task.start_date,stage.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stage.end_date||undefined} onSave={value=>onSaveTask(task,{due_date:value||null})}/></td>
+    <td><EditableTaskCell value={task.assigned_by_name} type="text" canEdit={canEdit} label={task.title+' assigner'} suggestions={assigners} onSave={value=>onSaveTask(task,{assigned_by_name:value||null})}/></td>
+    <td><EditableTaskCell value={task.assigned_to_name} type="text" canEdit={canEdit} label={task.title+' assignee'} suggestions={assignees} onSave={value=>onSaveTask(task,{assigned_to_name:value||null})}/></td>
+    {fields.map(field=><td key={field.id}><EditableTaskCell value={task.custom_fields?.[field.id]} type="text" canEdit={canEdit} label={task.title+' '+field.name} suggestions={[]} onSave={value=>onSaveTask(task,{custom_fields:{...(task.custom_fields??{}),[field.id]:value}})}/></td>)}
+    <td className="task-grid-add-col"></td>
+  </tr>)}</tbody></table></div>
+}
+
+function EditableTaskCell({value,type,canEdit,label,suggestions=[],min,max,onSave}:{value:string|null|undefined;type:'text'|'date';canEdit:boolean;label:string;suggestions?:string[];min?:string;max?:string;onSave:(value:string)=>void}) {
+  const [editing,setEditing]=useState(false)
+  const [draft,setDraft]=useState(value??'')
+  const listId='suggest-'+label.replace(/[^a-z0-9]+/gi,'-')
+  useEffect(()=>{if(!editing)setDraft(value??'')},[value,editing])
+  const commit=()=>{setEditing(false);if(draft!==(value??''))onSave(draft)}
+  return <div className="task-grid-cell-wrap">
+    {editing&&canEdit?<input className="task-grid-editor" autoFocus type={type} aria-label={label} value={draft} min={min} max={max} list={type==='text'&&suggestions.length?listId:undefined} onChange={e=>setDraft(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur()}}}/>:<button type="button" className="task-grid-cell" disabled={!canEdit} aria-label={label} onClick={()=>canEdit&&setEditing(true)}>{value||<span className="task-grid-empty">—</span>}</button>}
+    {editing&&type==='text'&&suggestions.length>0&&<datalist id={listId}>{suggestions.map(name=><option key={name} value={name}/>)}</datalist>}
+  </div>
+}
 function CommentThread({title,comments,canComment,canManage,currentUserId,commentText,setCommentText,busy,onSubmit,onEdit,onDelete,placeholder}:{title:string;comments:Comment[];canComment:boolean;canManage:boolean;currentUserId:string;commentText:string;setCommentText:(value:string)=>void;busy:boolean;onSubmit:(event:FormEvent)=>void;onEdit:(comment:Comment)=>void;onDelete:(comment:Comment)=>void;placeholder:string}) {
-  return <section className="panel thread-panel"><div className="panel-heading"><div><h2>{title}</h2><p>Comments are saved with the stage or task and visible to project members.</p></div><span className="count-pill">{comments.length}</span></div>
-    <div className="discussion-list">{comments.length===0?<Empty icon={<MessageCircle/>} title="No comments yet" body="Start the conversation with a stage or task update."/>:comments.map(comment=><article className="comment" key={comment.id}><div className="comment-avatar">{comment.user_id===currentUserId?'Y':'M'}</div><div className="comment-body"><div className="comment-meta"><b>{comment.user_id===currentUserId?'You':`Member ${comment.user_id.slice(0,8)}`}</b><time>{new Date(comment.created_at).toLocaleString()}</time><span className="thread-actions">{(comment.user_id===currentUserId||canManage)&&<button type="button" className="icon-button small" title="Edit comment" onClick={()=>onEdit(comment)}><Pencil size={12}/></button>}{(comment.user_id===currentUserId||canManage)&&<button type="button" className="icon-button small danger-icon" title="Delete comment" onClick={()=>onDelete(comment)}><Trash2 size={12}/></button>}</span></div><p>{comment.body}</p></div></article>)}</div>
+  const [collapsed,setCollapsed]=useState(false)
+  return <section className={'panel thread-panel '+(collapsed?'section-collapsed':'')}><div className="panel-heading"><div><h2>{title}</h2><p>Comments are saved with the stage or task and visible to project members.</p></div><div className="panel-heading-actions"><span className="count-pill">{comments.length}</span><button type="button" className="icon-button" aria-label={(collapsed?'Show ':'Hide ')+title} onClick={()=>setCollapsed(v=>!v)}>{collapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div></div>
+    <div className="discussion-list">{comments.length===0?<Empty icon={<MessageCircle/>} title="No comments yet" body="Start the conversation with a stage or task update."/>:comments.map(comment=><article className="comment" key={comment.id}><div className="comment-avatar">{comment.user_id===currentUserId?'Y':'M'}</div><div className="comment-body"><div className="comment-meta"><b>{comment.user_id===currentUserId?'You':'Member '+comment.user_id.slice(0,8)}</b><time>{new Date(comment.created_at).toLocaleString()}</time><span className="thread-actions">{(comment.user_id===currentUserId||canManage)&&<button type="button" className="icon-button small" title="Edit comment" onClick={()=>onEdit(comment)}><Pencil size={12}/></button>}{(comment.user_id===currentUserId||canManage)&&<button type="button" className="icon-button small danger-icon" title="Delete comment" onClick={()=>onDelete(comment)}><Trash2 size={12}/></button>}</span></div><p>{comment.body}</p></div></article>)}</div>
     {canComment?<form className="comment-form" onSubmit={onSubmit}><div className="comment-avatar self">Y</div><div className="comment-compose"><textarea value={commentText} onChange={e=>setCommentText(e.target.value)} placeholder={placeholder} rows={2} maxLength={5000}/><div className="compose-footer"><span>Keep the project team informed.</span><button className="primary compact" disabled={busy||!commentText.trim()}>Post comment <ArrowLeft size={13} className="send-icon"/></button></div></div></form>:<div className="viewer-note"><Eye size={15}/> You have view-only access.</div>}
   </section>
 }
-
 function statusLabel(status: TaskStatus) { return status === 'todo' ? 'To be started' : status === 'in_progress' ? 'Ongoing' : 'Completed' }
 function Stat({ icon, label, value, foot, tone }: { icon: any; label: string; value: string; foot: string; tone: string }) {
   return <div className="stat-card"><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}>{icon}</div></div><div className="stat-value">{value}</div><div className="stat-foot">{foot}</div></div>
@@ -447,6 +500,7 @@ function addDays(date: Date, days: number) { const d = new Date(date); d.setDate
 function Gantt({ tasks, canEdit, onStatus, onTaskClick }: { tasks: Task[]; canEdit: boolean; onStatus: (t: Task, p: Partial<Task>)=>void; onTaskClick?: (task: Task)=>void }) {
   const [rangeDays, setRangeDays] = useState(30)
   const [shift, setShift] = useState(0)
+  const [collapsed,setCollapsed]=useState(false)
   const datedValues = tasks.flatMap(t => [parseLocalDate(t.start_date), parseLocalDate(t.due_date)]).filter((d): d is Date => Boolean(d))
   const today = new Date(); today.setHours(0,0,0,0)
   const earliest = datedValues.length ? new Date(Math.min(...datedValues.map(d=>d.getTime()))) : today
@@ -465,8 +519,8 @@ function Gantt({ tasks, canEdit, onStatus, onTaskClick }: { tasks: Task[]; canEd
   }
   const tickCount = Math.max(1, ticks.length)
   const visibleTasks = tasks
-  return <section className="panel gantt-panel">
-    <div className="panel-heading gantt-heading"><div><h2>Gantt timeline</h2><p>Choose a planning window, then scroll horizontally to inspect the schedule. Task bars use their actual start and due dates.</p></div><GanttChartSquare size={19}/></div>
+  return <section className={"panel gantt-panel "+(collapsed?"section-collapsed":"")}>
+    <div className="panel-heading gantt-heading"><div><h2>Task Gantt chart</h2><p>Choose a planning window, then scroll horizontally to inspect the schedule. Task bars use their actual start and due dates.</p></div><GanttChartSquare size={19}/><button type="button" className="icon-button" aria-label={collapsed?"Show Task Gantt chart":"Hide Task Gantt chart"} onClick={()=>setCollapsed(v=>!v)}>{collapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div>
     <div className="gantt-toolbar"><div className="gantt-range-buttons" role="group" aria-label="Timeline preview range">{[{label:'1 week',days:7},{label:'1 month',days:30},{label:'6 months',days:183},{label:'1 year',days:365}].map(r=><button key={r.days} className={`outline-button ${rangeDays===r.days?'selected-range':''}`} onClick={()=>{setRangeDays(r.days);setShift(0)}}>{r.label}</button>)}</div><div className="gantt-nav"><button className="outline-button" onClick={()=>setShift(v=>v-1)} aria-label="Previous timeline window">← Previous</button><button className="outline-button" onClick={()=>setShift(0)}>Reset window</button><button className="outline-button" onClick={()=>setShift(v=>v+1)}>Next →</button></div></div>
     <div className="gantt-range-caption">{rangeStart.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} – {rangeEnd.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} · {tasks.length} tasks</div>
     {tasks.length===0 ? <Empty icon={<GanttChartSquare/>} title="Your timeline is empty" body="Create tasks with start and due dates to build your Gantt chart."/> : <div className="gantt-scroll"><div className="gantt-canvas" style={{minWidth:`${Math.max(900, tickCount * (rangeDays<=30 ? 42 : rangeDays<=183 ? 76 : 110))}px`}}>
