@@ -388,3 +388,10 @@
 /* Keep wheel gestures over either Gantt chart local to that chart. */
 .gantt-scroll{overscroll-behavior:contain;overscroll-behavior-y:contain;cursor:grab;touch-action:pan-x}
 .gantt-scroll:active{cursor:grabbing}
+
+
+.stage-name-cell{display:flex;align-items:center;gap:5px;min-width:0}
+.stage-name-cell .sheet-name{min-width:0;text-align:left}
+.stage-name-pencil{flex:0 0 auto;opacity:.72}
+.stage-name-cell:hover .stage-name-pencil,.stage-name-pencil:focus-visible{opacity:1}
+.stage-name-editor{min-width:90px;width:100%;max-width:190px}
