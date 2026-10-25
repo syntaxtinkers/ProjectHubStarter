@@ -443,19 +443,22 @@ function TaskGrid({stage,tasks,allProjectTasks,fields,canEdit,onTaskClick,onSave
   const assigners=[...new Set(allProjectTasks.map(t=>t.assigned_by_name?.trim()).filter((v):v is string=>Boolean(v)))]
   const assignees=[...new Set(allProjectTasks.map(t=>t.assigned_to_name?.trim()).filter((v):v is string=>Boolean(v)))]
   const addField=()=>{const name=prompt('Name this new column. It will be available for every task in this project.');if(name?.trim())onAddField(name)}
+  const columns=5+fields.length
   return <div className="task-grid-wrap"><table className="task-grid-table"><thead><tr>
-    <th scope="col" className="task-grid-name-col">Task</th><th scope="col">Start date</th><th scope="col">End date</th><th scope="col">Assigner</th><th scope="col">Assignee</th>
+    <th scope="col">Start date</th><th scope="col">End date</th><th scope="col">Assigner</th><th scope="col">Assignee</th>
     {fields.map(field=><th scope="col" key={field.id}>{field.name}</th>)}
     <th scope="col" className="task-grid-add-col">{canEdit&&<button type="button" className="task-grid-add-field" onClick={addField} aria-label="Add a custom task column" title="Add a column"><Plus size={16}/></button>}</th>
-  </tr></thead><tbody>{tasks.map(task=><tr key={task.id}>
-    <th scope="row" className="task-grid-name-col"><button type="button" className="task-grid-task-name" onClick={()=>onTaskClick(task)}>{task.title}</button><small className={'stage-task-status '+task.status}>{statusLabel(task.status)}</small></th>
-    <td><EditableTaskCell value={task.start_date} type="date" canEdit={canEdit} label={task.title+' start date'} min={stage.start_date||undefined} max={stage.end_date||undefined} onSave={value=>onSaveTask(task,{start_date:value||null})}/></td>
-    <td><EditableTaskCell value={task.due_date} type="date" canEdit={canEdit} label={task.title+' end date'} min={[task.start_date,stage.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stage.end_date||undefined} onSave={value=>onSaveTask(task,{due_date:value||null})}/></td>
-    <td><EditableTaskCell value={task.assigned_by_name} type="text" canEdit={canEdit} label={task.title+' assigner'} suggestions={assigners} onSave={value=>onSaveTask(task,{assigned_by_name:value||null})}/></td>
-    <td><EditableTaskCell value={task.assigned_to_name} type="text" canEdit={canEdit} label={task.title+' assignee'} suggestions={assignees} onSave={value=>onSaveTask(task,{assigned_to_name:value||null})}/></td>
-    {fields.map(field=><td key={field.id}><EditableTaskCell value={task.custom_fields?.[field.id]} type="text" canEdit={canEdit} label={task.title+' '+field.name} suggestions={[]} onSave={value=>onSaveTask(task,{custom_fields:{...(task.custom_fields??{}),[field.id]:value}})}/></td>)}
-    <td className="task-grid-add-col"></td>
-  </tr>)}</tbody></table></div>
+  </tr></thead>{tasks.map(task=><tbody key={task.id}>
+    <tr className="task-grid-title-row"><th scope="rowgroup" colSpan={columns}><button type="button" className="task-grid-task-name" onClick={()=>onTaskClick(task)}>{task.title}</button><small className={'stage-task-status '+task.status}>{statusLabel(task.status)}</small><button type="button" className="task-grid-open-task" onClick={()=>onTaskClick(task)} aria-label={'Open full details for '+task.title}><Pencil size={12}/></button></th></tr>
+    <tr>
+      <td><EditableTaskCell value={task.start_date} type="date" canEdit={canEdit} label={task.title+' start date'} min={stage.start_date||undefined} max={stage.end_date||undefined} onSave={value=>onSaveTask(task,{start_date:value||null})}/></td>
+      <td><EditableTaskCell value={task.due_date} type="date" canEdit={canEdit} label={task.title+' end date'} min={[task.start_date,stage.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stage.end_date||undefined} onSave={value=>onSaveTask(task,{due_date:value||null})}/></td>
+      <td><EditableTaskCell value={task.assigned_by_name} type="text" canEdit={canEdit} label={task.title+' assigner'} suggestions={assigners} onSave={value=>onSaveTask(task,{assigned_by_name:value||null})}/></td>
+      <td><EditableTaskCell value={task.assigned_to_name} type="text" canEdit={canEdit} label={task.title+' assignee'} suggestions={assignees} onSave={value=>onSaveTask(task,{assigned_to_name:value||null})}/></td>
+      {fields.map(field=><td key={field.id}><EditableTaskCell value={task.custom_fields?.[field.id]} type="text" canEdit={canEdit} label={task.title+' '+field.name} suggestions={[]} onSave={value=>onSaveTask(task,{custom_fields:{...(task.custom_fields??{}),[field.id]:value}})}/></td>)}
+      <td className="task-grid-add-col"></td>
+    </tr>
+  </tbody>)}</table></div>
 }
 
 function EditableTaskCell({value,type,canEdit,label,suggestions=[],min,max,onSave}:{value:string|null|undefined;type:'text'|'date';canEdit:boolean;label:string;suggestions?:string[];min?:string;max?:string;onSave:(value:string)=>void}) {
