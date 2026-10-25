@@ -370,3 +370,10 @@
 .gantt-scroll { cursor:grab; }
 .gantt-scroll:active { cursor:grabbing; }
 .gantt-scroll .gantt-row { user-select:none; }
+
+.task-grid-new-row td,.task-grid-new-row th,.stage-new-row td { padding:2px !important; }
+.task-grid-new-row .task-grid-editor,.stage-new-row .task-grid-editor { min-width:0;min-height:29px;padding:4px;font-size:10px; }
+.task-grid-new-row .task-grid-select { width:100%;padding:4px 2px;font-size:10px; }
+.task-grid-new-row .task-grid-add-field { width:20px;height:20px;margin:1px; }
+.compact-table-panel .panel-heading { gap:8px;flex-wrap:wrap; }
+.task-grid-table .task-grid-add-field { min-width:20px; }
