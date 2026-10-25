@@ -29,6 +29,7 @@ const initialPrefs = { bg: '#0b1020', panel: '#11182b', text: '#e9edf7', accent:
 
 export default function App() {
   const [session, setSession] = useState<any>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -337,9 +338,9 @@ export default function App() {
     </main>
   )
 
-  return <div className={`app-shell ${prefs.mode === 'light' ? 'light-mode' : ''}`} style={themeStyle}>
+  return <div className={`app-shell ${prefs.mode === 'light' ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Command size={19}/></div><span>project<span className="accent">hub</span></span><button className="icon-button collapse" title="Workspace menu"><ChevronDown size={15}/></button></div>
+      <div className="brand"><div className="brand-mark"><Command size={19}/></div><span>project<span className="accent">hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
       <button className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div><b>{profileName || session.user.email?.split('@')[0] || 'My workspace'}</b><small>Free workspace</small></div><ChevronDown size={15}/></button>
       <div className="nav-label">WORKSPACE</div>
       <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><LayoutDashboard size={17}/> Overview</button>
