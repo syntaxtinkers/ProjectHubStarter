@@ -15,8 +15,8 @@ type Project = { id: string; name: string; description: string | null; created_a
 type Comment = { id: string; body: string; created_at: string; user_id: string }
 type Role = 'owner' | 'editor' | 'commenter' | 'viewer'
 type TaskStatus = 'todo' | 'in_progress' | 'done'
-type Stage = { id: string; project_id: string; name: string; description: string | null; start_date: string | null; end_date: string | null; created_by: string; created_at: string }
-type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
+type Stage = { id: string; project_id: string; name: string; description: string | null; start_date: string | null; end_date: string | null; sort_order?: number; created_by: string; created_at: string }
+type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; sort_order?: number; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
 type TaskCustomField = { id: string; project_id: string; name: string; sort_order: number; created_by: string; created_at: string }
 type Member = { user_id: string; role: Role; joined_at: string; email?: string }
 type Tab = 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'settings'
@@ -129,9 +129,9 @@ export default function App() {
     if (!supabase) return
     const [c, t, m, s, f] = await Promise.all([
       supabase.from('project_comments').select('id,body,created_at,user_id').eq('project_id', projectId).order('created_at', { ascending: true }),
-      supabase.from('project_tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
+      supabase.from('project_tasks').select('*').eq('project_id', projectId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }),
       supabase.from('project_members').select('user_id,role,joined_at').eq('project_id', projectId).order('joined_at', { ascending: true }),
-      supabase.from('project_stages').select('*').eq('project_id', projectId).order('created_at', { ascending: true }),
+      supabase.from('project_stages').select('*').eq('project_id', projectId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }),
       supabase.from('project_task_custom_fields').select('*').eq('project_id', projectId).order('sort_order', { ascending: true }).order('created_at', { ascending: true })
     ])
     if (c.error) setNotice(`Comments: ${c.error.message}`); else setComments(c.data ?? [])
@@ -187,7 +187,7 @@ export default function App() {
       const outside = tasks.filter(task => task.stage_id === editingStage.id && ((stageStart && ((task.start_date && task.start_date < stageStart) || (task.due_date && task.due_date < stageStart))) || (stageEnd && ((task.start_date && task.start_date > stageEnd) || (task.due_date && task.due_date > stageEnd)))))
       if (outside.length) { setNotice('Adjust existing task dates before narrowing this stage range.'); setBusy(false); return }
     }
-    const payload = { name: stageName.trim(), description: stageDescription.trim() || null, start_date: stageStart || null, end_date: stageEnd || null }
+    const payload = { name: stageName.trim(), description: stageDescription.trim() || null, start_date: stageStart || null, end_date: stageEnd || null, sort_order: editingStage?.sort_order ?? (stages.length ? Math.max(...stages.map(s => s.sort_order ?? -1)) + 1 : 0) }
     const result = editingStage ? await supabase.from('project_stages').update(payload).eq('id', editingStage.id).select('id').single() : await supabase.from('project_stages').insert({ ...payload, project_id: selected.id, created_by: session.user.id }).select('id').single()
     if (result.error) setNotice(`Could not save stage: ${result.error.message}`)
     else { setShowStage(false); setEditingStage(null); await loadProjectData(selected.id); if (!editingStage && result.data?.id) { setSelectedStageId(result.data.id); setTab('stage_detail') } setNotice(editingStage ? 'Stage updated.' : 'Stage created.') }
@@ -211,7 +211,7 @@ export default function App() {
     if (parentStage?.start_date && ((taskStart && taskStart < parentStage.start_date) || (taskDue && taskDue < parentStage.start_date))) { setNotice('Task dates cannot be before the stage start date (' + parentStage.start_date + ').'); return }
     if (parentStage?.end_date && ((taskStart && taskStart > parentStage.end_date) || (taskDue && taskDue > parentStage.end_date))) { setNotice('Task dates cannot be after the stage end date (' + parentStage.end_date + ').'); return }
     setBusy(true); setNotice('')
-    const payload = { stage_id: taskStageId, project_id: selected.id, title: taskTitle.trim(), description: taskDescription.trim() || null, status: taskStatus, priority: taskPriority, start_date: taskStart || null, due_date: taskDue || null }
+    const payload = { stage_id: taskStageId, project_id: selected.id, title: taskTitle.trim(), description: taskDescription.trim() || null, status: taskStatus, priority: taskPriority, start_date: taskStart || null, due_date: taskDue || null, sort_order: editingTask?.sort_order ?? (tasks.filter(t => t.stage_id === taskStageId).length ? Math.max(...tasks.filter(t => t.stage_id === taskStageId).map(t => t.sort_order ?? -1)) + 1 : 0) }
     const result = editingTask ? await supabase.from('project_tasks').update(payload).eq('id', editingTask.id) : await supabase.from('project_tasks').insert({ ...payload, created_by: session.user.id })
     if (result.error) setNotice(`Could not save task: ${result.error.message}. Check that supabase/rebuild_stages.sql has been applied.`)
     else { setShowTask(false); setEditingTask(null); await loadProjectData(selected.id); setNotice(editingTask ? 'Task updated.' : 'Task created.') }
@@ -264,8 +264,21 @@ export default function App() {
     if (!name) return
     if (taskFields.some(field => field.name.toLowerCase() === name.toLowerCase())) { setNotice('A column with that name already exists.'); return }
     const { data, error } = await supabase.from('project_task_custom_fields').insert({ project_id: selected.id, name, sort_order: taskFields.length, created_by: session.user.id }).select('*').single()
-    if (error) setNotice('Could not add custom column: ' + error.message)
+    if (error) setNotice('Could not add custom column: ' + error.message + '. If the table or policy is missing, apply the latest additive Supabase migration.')
     else { setTaskFields(current => [...current, data as TaskCustomField]); setNotice('Added the “' + name + '” column to this project.') }
+  }
+  async function deleteTaskField(field: TaskCustomField) {
+    if (!supabase || !selected || !canEdit(selected.role)) return
+    if (!confirm('Delete the “' + field.name + '” column from this project? Values stored in this custom column will be removed from task data and this cannot be undone.')) return
+    const nextTasks = tasks.filter(task => task.custom_fields?.[field.id])
+    for (const task of nextTasks) {
+      const custom = { ...(task.custom_fields ?? {}) }; delete custom[field.id]
+      const { error } = await supabase.from('project_tasks').update({ custom_fields: custom }).eq('id', task.id)
+      if (error) { setNotice('Could not remove column values: ' + error.message + '. The column has not been deleted.'); return }
+    }
+    const { error } = await supabase.from('project_task_custom_fields').delete().eq('id', field.id).eq('project_id', selected.id)
+    if (error) setNotice('Could not delete custom column: ' + error.message)
+    else { setTaskFields(current => current.filter(item => item.id !== field.id)); await loadProjectData(selected.id); setNotice('Deleted the “' + field.name + '” column.') }
   }
   async function deleteTask(task: Task) {
     if (!supabase || !selected || !canEdit(selected.role) || !confirm(`Delete "${task.title}"? This also deletes its task comments.`)) return
