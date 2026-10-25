@@ -223,18 +223,18 @@ export default function App() {
         if(inserted.error) throw inserted.error
       }
       if(projectCommentsRes.data?.length) {
-        const result=await supabase.from('project_comments').insert(projectCommentsRes.data.map(c=>({...c,project_id:newId})))
+        const result=await supabase.from('project_comments').insert(projectCommentsRes.data.map(c=>({...c,project_id:newId,user_id:session.user.id})))
         if(result.error) throw result.error
       }
       for(const [oldStage,newStage] of Object.entries(stageMap)) {
         const res=await supabase.from('stage_comments').select('body,user_id,created_at').eq('stage_id',oldStage)
         if(res.error && !res.error.message.toLowerCase().includes('does not exist')) throw res.error
-        if(res.data?.length) { const put=await supabase.from('stage_comments').insert(res.data.map(c=>({...c,stage_id:newStage}))); if(put.error) throw put.error }
+        if(res.data?.length) { const put=await supabase.from('stage_comments').insert(res.data.map(c=>({...c,stage_id:newStage,user_id:session.user.id}))); if(put.error) throw put.error }
       }
       for(const [oldTask,newTask] of Object.entries(taskMap)) {
         const res=await supabase.from('task_comments').select('body,user_id,created_at').eq('task_id',oldTask)
         if(res.error && !res.error.message.toLowerCase().includes('does not exist')) throw res.error
-        if(res.data?.length) { const put=await supabase.from('task_comments').insert(res.data.map(c=>({...c,task_id:newTask}))); if(put.error) throw put.error }
+        if(res.data?.length) { const put=await supabase.from('task_comments').insert(res.data.map(c=>({...c,task_id:newTask,user_id:session.user.id}))); if(put.error) throw put.error }
       }
       await loadProjects(); setSelectedId(newId); setTab('stages'); await loadProjectData(newId)
       setNotice('Project duplicated. The original project remains unchanged.')
@@ -459,7 +459,7 @@ export default function App() {
       <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><b>{selected?.name ?? 'Overview'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
       <div className="page-content">
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
-        {tab==='home' ? <DashboardHome projects={filteredProjects} data={dashboardData} onOpen={p=>{setSelectedId(p.id);setTab('stages')}} onDuplicate={duplicateProject} canEdit={canEdit} busy={busy}/> : !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
+        {tab==='home' ? <DashboardHome projects={filteredProjects} data={dashboardData} onOpen={p=>{setSelectedId(p.id);setTab('stages')}} onOpenStage={(p,s)=>{setSelectedId(p.id);setSelectedStageId(s.id);setTab('stage_detail')}} onDuplicate={duplicateProject} canEdit={canEdit} busy={busy}/> : !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
           <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}</div></div>
           {tab==='overview' && <>
@@ -497,7 +497,7 @@ export default function App() {
   </div>
 }
 
-function DashboardHome({projects,data,onOpen,onDuplicate,canEdit,busy}:{projects:Project[];data:Record<string,{stages:Stage[];tasks:Task[]}>;onOpen:(project:Project)=>void;onDuplicate:(project:Project)=>void;canEdit:(role?:Role)=>boolean;busy:boolean}) {
+function DashboardHome({projects,data,onOpen,onOpenStage,onDuplicate,canEdit,busy}:{projects:Project[];data:Record<string,{stages:Stage[];tasks:Task[]}>;onOpen:(project:Project)=>void;onOpenStage:(project:Project,stage:Stage)=>void;onDuplicate:(project:Project)=>void;canEdit:(role?:Role)=>boolean;busy:boolean}) {
   return <section className="dashboard-home">
     <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> WORKSPACE OVERVIEW</div><h1>CKPC project hub</h1><p>Every project, every stage, and the work still in motion.</p></div><span className="count-pill">{projects.length} projects</span></div>
     {projects.length===0?<Empty icon={<FolderKanban/>} title="No projects yet" body="Create a project to see its stages and progress here."/>:<div className="dashboard-project-grid">{projects.map((project,index)=>{
@@ -506,7 +506,7 @@ function DashboardHome({projects,data,onOpen,onDuplicate,canEdit,busy}:{projects
         <div className="dashboard-project-head"><button type="button" className="dashboard-project-title" onClick={()=>onOpen(project)}><span className={'dashboard-project-mark '+colors[index%colors.length]}><FolderKanban size={16}/></span><span><b>{project.name}</b><small>{d.stages.length} stages · {total} tasks</small></span></button><div className="dashboard-project-actions">{canEdit(project.role)&&<button type="button" className="icon-button small" disabled={busy} title="Duplicate project" aria-label={'Duplicate '+project.name} onClick={()=>onDuplicate(project)}><CopyIcon/></button>}<button type="button" className="icon-button small" title="Open project" onClick={()=>onOpen(project)}><ArrowLeft size={14} style={{transform:'rotate(180deg)'}}/></button></div></div>
         <button type="button" className="dashboard-project-progress" onClick={()=>onOpen(project)} aria-label={project.name+' '+pct+' percent completed'}><svg viewBox="0 0 44 44" role="img" aria-label={pct+'% completed'}><circle cx="22" cy="22" r="18" className="dashboard-ring-track"/><circle cx="22" cy="22" r="18" className="dashboard-ring-value" strokeDasharray={2*Math.PI*18} strokeDashoffset={2*Math.PI*18*(1-pct/100)}/></svg><span><b>{pct}%</b><small>completed</small></span></button>
         <div className="dashboard-project-totals"><span className="done"><Check size={12}/> {done} completed</span><span className="ongoing"><Activity size={12}/> {ongoing} ongoing</span><span className="pending"><Clock3 size={12}/> {pending} pending</span></div>
-        <div className="dashboard-stage-list">{d.stages.map(stage=>{const ts=d.tasks.filter(t=>t.stage_id===stage.id);return <button type="button" className="dashboard-stage-row" key={stage.id} onClick={()=>onOpen(project)}><b title={stage.name}>{stage.name}</b><span className="stage-count ongoing">{ts.filter(t=>t.status==='in_progress').length}<small>ongoing</small></span><span className="stage-count pending">{ts.filter(t=>t.status==='todo').length}<small>pending</small></span><span className="stage-count done">{ts.filter(t=>t.status==='done').length}<small>completed</small></span></button>})}{d.stages.length===0&&<p className="dashboard-no-stages">No stages added yet.</p>}</div>
+        <div className="dashboard-stage-list">{d.stages.map(stage=>{const ts=d.tasks.filter(t=>t.stage_id===stage.id);return <button type="button" className="dashboard-stage-row" key={stage.id} onClick={()=>onOpenStage(project,stage)}><b title={stage.name}>{stage.name}</b><span className="stage-count ongoing">{ts.filter(t=>t.status==='in_progress').length}<small>ongoing</small></span><span className="stage-count pending">{ts.filter(t=>t.status==='todo').length}<small>pending</small></span><span className="stage-count done">{ts.filter(t=>t.status==='done').length}<small>completed</small></span></button>})}{d.stages.length===0&&<p className="dashboard-no-stages">No stages added yet.</p>}</div>
       </article>
     })}</div>}
   </section>
