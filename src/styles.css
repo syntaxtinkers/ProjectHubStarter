@@ -404,3 +404,37 @@
 
 .app-shell.sidebar-collapsed .sidebar:hover .nav-item{display:flex!important}
 .app-shell.sidebar-collapsed .sidebar:hover .project-list-head{display:flex!important}
+
+
+/* Make stage and task names easier to scan throughout all tables and views. */
+.compact-table.stage-sheet td:first-child .sheet-name,
+.compact-table.stage-sheet .stage-name-cell .sheet-name,
+.compact-table.stage-sheet .stage-name-cell .sheet-name button {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+.task-grid-table .task-grid-title-cell,
+.task-grid-table .task-grid-title-cell .task-grid-task-name,
+.task-grid-table .task-grid-title-cell button.task-grid-task-name,
+.task-grid-table .task-grid-title-cell [contenteditable="true"] {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+.compact-table td .stage-name-block > b,
+.compact-table td .stage-name-cell .sheet-name {
+  font-size: 14px;
+  font-weight: 800;
+}
+.task-row-main > b,
+.gantt-task-name > b {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+.dashboard-stage-name {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
