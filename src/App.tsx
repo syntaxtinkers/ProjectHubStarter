@@ -540,13 +540,13 @@ function dateKey(date: Date) {
 }
 function addDays(date: Date, days: number) { const d = new Date(date); d.setDate(d.getDate() + days); return d }
 function Gantt({ tasks, canEdit, onStatus, onTaskClick }: { tasks: Task[]; canEdit: boolean; onStatus: (t: Task, p: Partial<Task>)=>void; onTaskClick?: (task: Task)=>void }) {
-  const [rangeDays, setRangeDays] = useState(30)
+  const [rangeDays, setRangeDays] = useState(() => { const ds=tasks.flatMap(t=>[parseLocalDate(t.start_date),parseLocalDate(t.due_date)]).filter((d):d is Date=>Boolean(d)); return ds.length>1?Math.min(3650,Math.max(7,Math.ceil((Math.max(...ds.map(d=>d.getTime()))-Math.min(...ds.map(d=>d.getTime())))/86400000)+1)):30 })
   const [shift, setShift] = useState(0)
   const [collapsed,setCollapsed]=useState(false)
   const datedValues = tasks.flatMap(t => [parseLocalDate(t.start_date), parseLocalDate(t.due_date)]).filter((d): d is Date => Boolean(d))
   const today = new Date(); today.setHours(0,0,0,0)
   const earliest = datedValues.length ? new Date(Math.min(...datedValues.map(d=>d.getTime()))) : today
-  const anchor = earliest < today ? earliest : today
+  const anchor = earliest
   const rangeStart = addDays(anchor, shift * rangeDays)
   const rangeEnd = addDays(rangeStart, rangeDays - 1)
   const dayOffset = (d: Date) => Math.round((d.getTime() - rangeStart.getTime()) / 86400000)
@@ -562,10 +562,10 @@ function Gantt({ tasks, canEdit, onStatus, onTaskClick }: { tasks: Task[]; canEd
   const tickCount = Math.max(1, ticks.length)
   const visibleTasks = tasks
   return <section className={"panel gantt-panel "+(collapsed?"section-collapsed":"")}>
-    <div className="panel-heading gantt-heading"><div><h2>Task Gantt chart</h2><p>Choose a planning window, then scroll horizontally to inspect the schedule. Task bars use their actual start and due dates.</p></div><GanttChartSquare size={19}/><button type="button" className="icon-button" aria-label={collapsed?"Show Task Gantt chart":"Hide Task Gantt chart"} onClick={()=>setCollapsed(v=>!v)}>{collapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div>
-    <div className="gantt-toolbar"><div className="gantt-range-buttons" role="group" aria-label="Timeline preview range">{[{label:'1 week',days:7},{label:'1 month',days:30},{label:'6 months',days:183},{label:'1 year',days:365}].map(r=><button key={r.days} className={`outline-button ${rangeDays===r.days?'selected-range':''}`} onClick={()=>{setRangeDays(r.days);setShift(0)}}>{r.label}</button>)}</div><div className="gantt-nav"><button className="outline-button" onClick={()=>setShift(v=>v-1)} aria-label="Previous timeline window">← Previous</button><button className="outline-button" onClick={()=>setShift(0)}>Reset window</button><button className="outline-button" onClick={()=>setShift(v=>v+1)}>Next →</button></div></div>
+    <div className="panel-heading gantt-heading"><div><h2>Task Gantt chart</h2><p>The full schedule fits the initial view. Scroll over the timeline to zoom in or out; use Previous/Next to pan dates.</p></div><GanttChartSquare size={19}/><button type="button" className="icon-button" aria-label={collapsed?"Show Task Gantt chart":"Hide Task Gantt chart"} onClick={()=>setCollapsed(v=>!v)}>{collapsed?<ChevronDown size={17}/>:<ChevronUp size={17}/>}</button></div>
+    <div className="gantt-toolbar"><div className="gantt-range-buttons" role="group" aria-label="Timeline preview range">{[{label:'1 week',days:7},{label:'1 month',days:30},{label:'6 months',days:183},{label:'1 year',days:365}].map(r=><button key={r.days} className={`outline-button ${rangeDays===r.days?'selected-range':''}`} onClick={()=>{setRangeDays(r.days);setShift(0)}}>{r.label}</button>)}</div><div className="gantt-nav"><button className="outline-button" onClick={()=>setShift(v=>v-1)} aria-label="Previous timeline window">← Previous</button><button className="outline-button" onClick={()=>{setRangeDays(datedValues.length>1?Math.min(3650,Math.max(7,Math.ceil((Math.max(...datedValues.map(d=>d.getTime()))-Math.min(...datedValues.map(d=>d.getTime())))/86400000)+1)):30);setShift(0)}}>Fit all</button><button className="outline-button" onClick={()=>setShift(v=>v+1)}>Next →</button></div></div>
     <div className="gantt-range-caption">{rangeStart.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} – {rangeEnd.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})} · {tasks.length} tasks</div>
-    {tasks.length===0 ? <Empty icon={<GanttChartSquare/>} title="Your timeline is empty" body="Create tasks with start and due dates to build your Gantt chart."/> : <div className="gantt-scroll"><div className="gantt-canvas" style={{minWidth:`${Math.max(900, tickCount * (rangeDays<=30 ? 42 : rangeDays<=183 ? 76 : 110))}px`}}>
+    {tasks.length===0 ? <Empty icon={<GanttChartSquare/>} title="Your timeline is empty" body="Create tasks with start and due dates to build your Gantt chart."/> : <div className="gantt-scroll" title="Scroll over the timeline to zoom in or out"><div className="gantt-canvas" onWheel={e=>{e.preventDefault();setRangeDays(v=>Math.max(7,Math.min(3650,Math.round(v*(e.deltaY>0?1.2:0.83)))));setShift(0)}} style={{minWidth:`${Math.max(900, tickCount * (rangeDays<=30 ? 42 : rangeDays<=183 ? 76 : 110))}px`}}>
       <div className="gantt-head"><div className="gantt-task-name gantt-sticky-name">Task / schedule</div><div className="gantt-days">{ticks.map((tick,i)=><div key={`${dateKey(tick.date)}-${i}`} className="gantt-day" style={{left:`${Math.max(0,dayOffset(tick.date)/rangeDays*100)}%`}}><b>{tick.label}</b><small>{tick.sub}</small></div>)}</div></div>
       {visibleTasks.map(t=>{
         const rawStart=parseLocalDate(t.start_date) ?? parseLocalDate(t.due_date)
