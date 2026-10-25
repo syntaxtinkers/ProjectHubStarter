@@ -240,9 +240,14 @@ export default function App() {
     if (error) setNotice(error.message); else await loadProjectData(selected.id)
   }
   async function deleteTask(task: Task) {
-    if (!supabase || !selected || !canEdit(selected.role) || !confirm(`Delete "${task.title}"?`)) return
+    if (!supabase || !selected || !canEdit(selected.role) || !confirm(`Delete "${task.title}"? This also deletes its task comments.`)) return
     const { error } = await supabase.from('project_tasks').delete().eq('id', task.id)
-    if (error) setNotice(error.message); else { await loadProjectData(selected.id); setNotice('Task deleted.') }
+    if (error) setNotice(error.message)
+    else {
+      if (editingTask?.id === task.id) { setShowTask(false); setEditingTask(null); setTaskComments([]) }
+      await loadProjectData(selected.id)
+      setNotice('Task deleted.')
+    }
   }
   async function inviteMember(e: FormEvent) {
     e.preventDefault(); if (!supabase || !selected || selected.role !== 'owner') return
