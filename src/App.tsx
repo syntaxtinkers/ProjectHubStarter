@@ -19,7 +19,7 @@ type Stage = { id: string; project_id: string; name: string; description: string
 type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; sort_order?: number; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
 type TaskCustomField = { id: string; project_id: string; name: string; sort_order: number; created_by: string; created_at: string }
 type Member = { user_id: string; role: Role; joined_at: string; email?: string }
-type Tab = 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'settings'
+type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'settings'
 
 const roleLabels: Record<Role, string> = { owner: 'Owner / Main editor', editor: 'Editor', commenter: 'Commenter', viewer: 'Viewer' }
 const colors = ['violet', 'blue', 'mint', 'orange']
@@ -75,7 +75,8 @@ export default function App() {
   const [inviteRole, setInviteRole] = useState<Role>('editor')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('stages')
+  const [tab, setTab] = useState<Tab>('home')
+  const [dashboardData, setDashboardData] = useState<Record<string, { stages: Stage[]; tasks: Task[] }>>({})
   const [taskFilter, setTaskFilter] = useState<'all' | TaskStatus>('all')
   const [prefs, setPrefs] = useState(initialPrefs)
   const [profileName, setProfileName] = useState('')
@@ -126,6 +127,18 @@ export default function App() {
     setProjects(rows)
     setSelectedId(current => current && rows.some(p => p.id === current) ? current : rows[0]?.id ?? null)
   }
+  useEffect(() => {
+    if (!supabase || !projects.length) { setDashboardData({}); return }
+    let cancelled = false
+    void Promise.all(projects.map(async project => {
+      const [s,t] = await Promise.all([
+        supabase!.from('project_stages').select('*').eq('project_id', project.id).order('sort_order',{ascending:true}),
+        supabase!.from('project_tasks').select('*').eq('project_id', project.id).order('sort_order',{ascending:true})
+      ])
+      return [project.id,{stages:(s.data??[]) as Stage[],tasks:(t.data??[]) as Task[]}] as const
+    })).then(rows => { if(!cancelled) setDashboardData(Object.fromEntries(rows)) })
+    return () => { cancelled = true }
+  }, [projects])
   async function loadProjectData(projectId: string) {
     if (!supabase) return
     const [c, t, m, s, f] = await Promise.all([
@@ -170,6 +183,64 @@ export default function App() {
     if (error) setNotice(error.message)
     else { setProjectName(''); setProjectDescription(''); setShowCreate(false); await loadProjects(); if (data) setSelectedId(data); setTab('stages'); setNotice('Project created.') }
     setBusy(false)
+  }
+  async function duplicateProject(project: Project) {
+    if (!supabase || !session?.user || !canEdit(project.role)) return
+    const copyName = prompt('Name for the duplicated project', project.name + ' (Copy)')
+    if (copyName === null || !copyName.trim()) return
+    if (!confirm('Duplicate this project with stages, tasks, custom task columns, dates, statuses and comments? The original will remain unchanged.')) return
+    setBusy(true); setNotice('')
+    try {
+      const created = await supabase.rpc('create_project', { project_name: copyName.trim(), project_description: project.description })
+      if (created.error || !created.data) throw new Error(created.error?.message || 'Could not create the copied project.')
+      const newId = created.data as string
+      const [stageRes,taskRes,fieldRes,projectCommentsRes] = await Promise.all([
+        supabase.from('project_stages').select('*').eq('project_id',project.id),
+        supabase.from('project_tasks').select('*').eq('project_id',project.id),
+        supabase.from('project_task_custom_fields').select('*').eq('project_id',project.id),
+        supabase.from('project_comments').select('body,user_id,created_at').eq('project_id',project.id)
+      ])
+      if(stageRes.error) throw stageRes.error
+      if(taskRes.error) throw taskRes.error
+      if(fieldRes.error && !fieldRes.error.message.toLowerCase().includes('does not exist')) throw fieldRes.error
+      if(projectCommentsRes.error) throw projectCommentsRes.error
+      const stageMap:Record<string,string>={}, taskMap:Record<string,string>={}
+      for(const old of (stageRes.data??[]) as any[]) {
+        const {id,created_at,project_id, ...data}=old
+        const inserted=await supabase.from('project_stages').insert({...data,project_id:newId,created_by:session.user.id}).select('id').single()
+        if(inserted.error) throw inserted.error
+        stageMap[id]=inserted.data.id
+      }
+      for(const old of (taskRes.data??[]) as any[]) {
+        const {id,created_at,project_id, ...data}=old
+        const inserted=await supabase.from('project_tasks').insert({...data,project_id:newId,stage_id:stageMap[old.stage_id],created_by:session.user.id}).select('id').single()
+        if(inserted.error) throw inserted.error
+        taskMap[id]=inserted.data.id
+      }
+      for(const old of (fieldRes.data??[]) as any[]) {
+        const {id,created_at,project_id, ...data}=old
+        const inserted=await supabase.from('project_task_custom_fields').insert({...data,project_id:newId,created_by:session.user.id})
+        if(inserted.error) throw inserted.error
+      }
+      if(projectCommentsRes.data?.length) {
+        const result=await supabase.from('project_comments').insert(projectCommentsRes.data.map(c=>({...c,project_id:newId})))
+        if(result.error) throw result.error
+      }
+      for(const [oldStage,newStage] of Object.entries(stageMap)) {
+        const res=await supabase.from('stage_comments').select('body,user_id,created_at').eq('stage_id',oldStage)
+        if(res.error && !res.error.message.toLowerCase().includes('does not exist')) throw res.error
+        if(res.data?.length) { const put=await supabase.from('stage_comments').insert(res.data.map(c=>({...c,stage_id:newStage}))); if(put.error) throw put.error }
+      }
+      for(const [oldTask,newTask] of Object.entries(taskMap)) {
+        const res=await supabase.from('task_comments').select('body,user_id,created_at').eq('task_id',oldTask)
+        if(res.error && !res.error.message.toLowerCase().includes('does not exist')) throw res.error
+        if(res.data?.length) { const put=await supabase.from('task_comments').insert(res.data.map(c=>({...c,task_id:newTask}))); if(put.error) throw put.error }
+      }
+      await loadProjects(); setSelectedId(newId); setTab('stages'); await loadProjectData(newId)
+      setNotice('Project duplicated. The original project remains unchanged.')
+    } catch(error:any) {
+      setNotice('Project duplication stopped: '+(error?.message||'Unknown error')+'. The original is unchanged; check for a partially created copy before retrying.')
+    } finally { setBusy(false) }
   }
   async function addComment(e: FormEvent) {
     e.preventDefault(); if (!supabase || !session?.user || !selected || !commentText.trim()) return
@@ -364,8 +435,8 @@ export default function App() {
   if (loading) return <div className="loading-screen"><LoaderCircle className="spin" size={28}/><span>Opening your workspace…</span></div>
   if (!session) return (
     <main className="auth-shell">
-      <div className="auth-decoration"><div className="glow glow-a"/><div className="glow glow-b"/><div className="auth-brand"><div className="brand-mark"><Command size={21}/></div><span>project<span className="accent">hub</span></span></div><div className="auth-pitch"><span className="eyebrow">ONE SPACE. EVERY PROJECT.</span><h1>Good work happens<br/><span>together.</span></h1><p>A calmer workspace for your team's projects, conversations, and ideas.</p><div className="feature-pills"><span><ShieldCheck size={14}/> Permission-aware</span><span><Users size={14}/> Made for teams</span></div></div><div className="auth-foot">YOUR TEAM'S WORKSPACE, REIMAGINED</div></div>
-      <section className="auth-panel"><div className="mobile-brand"><div className="brand-mark"><Command size={20}/></div><b>project<span className="accent">hub</span></b></div><div className="auth-card"><span className="eyebrow">{authMode === 'signin' ? 'WELCOME BACK' : 'GET STARTED'}</span><h2>{authMode === 'signin' ? 'Sign in to your workspace' : 'Create your account'}</h2><p className="muted">{authMode === 'signin' ? 'Pick up where your team left off.' : 'Set up your account to create your first project.'}</p><form onSubmit={handleAuth} className="form-stack"><label>Email address<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required/></label><label>Password<input type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters" minLength={6} required/></label><button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'} <span>→</span></button></form>{authMessage && <p className="notice">{authMessage}</p>}<p className="switch-auth">{authMode === 'signin' ? 'New to ProjectHub?' : 'Already have an account?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signin' ? 'signup' : 'signin');setAuthMessage('')}}>{authMode === 'signin' ? 'Create an account' : 'Sign in'}</button></p><div className="secure-note"><LockKeyhole size={14}/> Your projects are private by default.</div></div></section>
+      <div className="auth-decoration"><div className="glow glow-a"/><div className="glow glow-b"/><div className="auth-brand"><div className="brand-mark"><Command size={21}/></div><span>CKPC <span className="accent">project hub</span></span></div><div className="auth-pitch"><span className="eyebrow">ONE SPACE. EVERY PROJECT.</span><h1>Good work happens<br/><span>together.</span></h1><p>A calmer workspace for your team's projects, conversations, and ideas.</p><div className="feature-pills"><span><ShieldCheck size={14}/> Permission-aware</span><span><Users size={14}/> Made for teams</span></div></div><div className="auth-foot">YOUR TEAM'S WORKSPACE, REIMAGINED</div></div>
+      <section className="auth-panel"><div className="mobile-brand"><div className="brand-mark"><Command size={20}/></div><b>CKPC <span className="accent">project hub</span></b></div><div className="auth-card"><span className="eyebrow">{authMode === 'signin' ? 'WELCOME BACK' : 'GET STARTED'}</span><h2>{authMode === 'signin' ? 'Sign in to your workspace' : 'Create your account'}</h2><p className="muted">{authMode === 'signin' ? 'Pick up where your team left off.' : 'Set up your account to create your first project.'}</p><form onSubmit={handleAuth} className="form-stack"><label>Email address<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required/></label><label>Password<input type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters" minLength={6} required/></label><button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'} <span>→</span></button></form>{authMessage && <p className="notice">{authMessage}</p>}<p className="switch-auth">{authMode === 'signin' ? 'New to ProjectHub?' : 'Already have an account?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signin' ? 'signup' : 'signin');setAuthMessage('')}}>{authMode === 'signin' ? 'Create an account' : 'Sign in'}</button></p><div className="secure-note"><LockKeyhole size={14}/> Your projects are private by default.</div></div></section>
     </main>
   )
 
@@ -374,7 +445,7 @@ export default function App() {
       <div className="brand"><div className="brand-mark"><Command size={19}/></div><span>project<span className="accent">hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
       <button className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div><b>{profileName || session.user.email?.split('@')[0] || 'My workspace'}</b><small>Free workspace</small></div><ChevronDown size={15}/></button>
       <div className="nav-label">WORKSPACE</div>
-      <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><LayoutDashboard size={17}/> Overview</button>
+      <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('home')}><LayoutDashboard size={17}/> Home dashboard</button>
       <button className={`nav-item ${tab==='stages'||tab==='stage_detail'?'active':''}`} onClick={()=>setTab('stages')}><ListTodo size={17}/> Stages <span className="nav-count">{stages.length}</span></button>
       <button className={`nav-item ${tab==='calendar'?'active':''}`} onClick={()=>setTab('calendar')}><CalendarDays size={17}/> Calendar</button>
       <button className={`nav-item ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><Users size={17}/> Team & access</button>
@@ -388,7 +459,7 @@ export default function App() {
       <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="crumb-slash">/</span><b>{selected?.name ?? 'Overview'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
       <div className="page-content">
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
-        {!selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
+        {tab==='home' ? <DashboardHome projects={filteredProjects} data={dashboardData} onOpen={p=>{setSelectedId(p.id);setTab('stages')}} onDuplicate={duplicateProject} canEdit={canEdit} busy={busy}/> : !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
           <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}</div></div>
           {tab==='overview' && <>
@@ -416,7 +487,7 @@ export default function App() {
           {tab==='settings' && <Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''}/>}
         </>
         }
-        <div className="page-footer"><span>© 2026 ProjectHub</span><span><LockKeyhole size={12}/> Built for focused collaboration</span></div>
+        <div className="page-footer"><span>© 2026 CKPC project hub</span><span><LockKeyhole size={12}/> Built for focused collaboration</span></div>
       </div>
     </main>
     {showCreate&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowCreate(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">NEW WORKSPACE</span><h2>Create a project</h2><p>Give your team a dedicated place to work together.</p></div><button className="icon-button" onClick={()=>setShowCreate(false)}><X size={18}/></button></div><form onSubmit={createProject} className="form-stack"><label>Project name<input autoFocus value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="e.g. Website redesign" maxLength={80} required/></label><label>Description <span className="optional">(optional)</span><textarea value={projectDescription} onChange={e=>setProjectDescription(e.target.value)} placeholder="What is this project about?" rows={3} maxLength={500}/></label><div className="modal-note"><LockKeyhole size={15}/> Your new project starts private.</div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowCreate(false)}>Cancel</button><button className="primary" disabled={busy||!projectName.trim()}><Plus size={16}/>{busy?'Creating…':'Create project'}</button></div></form></section></div>}
@@ -426,6 +497,21 @@ export default function App() {
   </div>
 }
 
+function DashboardHome({projects,data,onOpen,onDuplicate,canEdit,busy}:{projects:Project[];data:Record<string,{stages:Stage[];tasks:Task[]}>;onOpen:(project:Project)=>void;onDuplicate:(project:Project)=>void;canEdit:(role?:Role)=>boolean;busy:boolean}) {
+  return <section className="dashboard-home">
+    <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> WORKSPACE OVERVIEW</div><h1>CKPC project hub</h1><p>Every project, every stage, and the work still in motion.</p></div><span className="count-pill">{projects.length} projects</span></div>
+    {projects.length===0?<Empty icon={<FolderKanban/>} title="No projects yet" body="Create a project to see its stages and progress here."/>:<div className="dashboard-project-grid">{projects.map((project,index)=>{
+      const d=data[project.id]??{stages:[],tasks:[]},total=d.tasks.length,done=d.tasks.filter(t=>t.status==='done').length,ongoing=d.tasks.filter(t=>t.status==='in_progress').length,pending=d.tasks.filter(t=>t.status==='todo').length,pct=total?Math.round(done/total*100):0
+      return <article className="dashboard-project-card" key={project.id}>
+        <div className="dashboard-project-head"><button type="button" className="dashboard-project-title" onClick={()=>onOpen(project)}><span className={'dashboard-project-mark '+colors[index%colors.length]}><FolderKanban size={16}/></span><span><b>{project.name}</b><small>{d.stages.length} stages · {total} tasks</small></span></button><div className="dashboard-project-actions">{canEdit(project.role)&&<button type="button" className="icon-button small" disabled={busy} title="Duplicate project" aria-label={'Duplicate '+project.name} onClick={()=>onDuplicate(project)}><CopyIcon/></button>}<button type="button" className="icon-button small" title="Open project" onClick={()=>onOpen(project)}><ArrowLeft size={14} style={{transform:'rotate(180deg)'}}/></button></div></div>
+        <button type="button" className="dashboard-project-progress" onClick={()=>onOpen(project)} aria-label={project.name+' '+pct+' percent completed'}><svg viewBox="0 0 44 44" role="img" aria-label={pct+'% completed'}><circle cx="22" cy="22" r="18" className="dashboard-ring-track"/><circle cx="22" cy="22" r="18" className="dashboard-ring-value" strokeDasharray={2*Math.PI*18} strokeDashoffset={2*Math.PI*18*(1-pct/100)}/></svg><span><b>{pct}%</b><small>completed</small></span></button>
+        <div className="dashboard-project-totals"><span className="done"><Check size={12}/> {done} completed</span><span className="ongoing"><Activity size={12}/> {ongoing} ongoing</span><span className="pending"><Clock3 size={12}/> {pending} pending</span></div>
+        <div className="dashboard-stage-list">{d.stages.map(stage=>{const ts=d.tasks.filter(t=>t.stage_id===stage.id);return <button type="button" className="dashboard-stage-row" key={stage.id} onClick={()=>onOpen(project)}><b title={stage.name}>{stage.name}</b><span className="stage-count ongoing">{ts.filter(t=>t.status==='in_progress').length}<small>ongoing</small></span><span className="stage-count pending">{ts.filter(t=>t.status==='todo').length}<small>pending</small></span><span className="stage-count done">{ts.filter(t=>t.status==='done').length}<small>completed</small></span></button>})}{d.stages.length===0&&<p className="dashboard-no-stages">No stages added yet.</p>}</div>
+      </article>
+    })}</div>}
+  </section>
+}
+function CopyIcon(){return <FolderKanban size={13}/>}
 function getStageProgress(stageTasks: Task[]) {
   const today = new Date(); today.setHours(0,0,0,0)
   const byDay = new Map<string,{todo:number;in_progress:number;done:number;total:number}>()
