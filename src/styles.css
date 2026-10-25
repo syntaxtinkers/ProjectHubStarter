@@ -278,3 +278,10 @@
   .task-grid-table thead th { position: static; }
   .task-grid-name-col { position: static; }
 }
+
+.task-grid-table .task-grid-title-row th { background: color-mix(in srgb, var(--purple, #9a8cff) 9%, var(--panel, #11182b)); padding: 10px 12px; border-top: 1px solid var(--border, #28334b); }
+.task-grid-title-row .task-grid-task-name { display: inline-block; max-width: calc(100% - 100px); }
+.task-grid-title-row .stage-task-status { margin-left: 10px; vertical-align: middle; }
+.task-grid-open-task { float: right; display: inline-grid; place-items: center; width: 25px; height: 25px; border: 1px solid var(--border, #28334b); border-radius: 6px; background: transparent; color: var(--muted, #9aa6bd); cursor: pointer; }
+.task-grid-open-task:hover { color: var(--text, #e9edf7); border-color: var(--purple, #9a8cff); }
+.light-mode .task-grid-table .task-grid-title-row th { background: #f0edff; }
