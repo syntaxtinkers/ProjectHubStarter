@@ -98,3 +98,42 @@ drop trigger if exists project_tasks_validate_stage_dates on public.project_task
 create trigger project_tasks_validate_stage_dates
 before insert or update of project_id, stage_id, start_date, due_date on public.project_tasks
 for each row execute function public.validate_task_dates_within_stage();
+
+
+-- Additive task spreadsheet fields. Existing task rows and stage dates are preserved.
+alter table public.project_tasks
+  add column if not exists assigned_by_name text,
+  add column if not exists assigned_to_name text,
+  add column if not exists custom_fields jsonb not null default '{}'::jsonb;
+
+create table if not exists public.project_task_custom_fields (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  name text not null check (char_length(trim(name)) between 1 and 120),
+  sort_order integer not null default 0,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint project_task_custom_fields_project_name_unique unique (project_id, name)
+);
+
+create index if not exists project_task_custom_fields_project_order_idx
+  on public.project_task_custom_fields(project_id, sort_order, created_at);
+
+alter table public.project_task_custom_fields enable row level security;
+
+drop policy if exists "Members can view project task custom fields" on public.project_task_custom_fields;
+create policy "Members can view project task custom fields"
+  on public.project_task_custom_fields
+  for select to authenticated
+  using (public.current_project_role(project_id) is not null);
+
+drop policy if exists "Editors can add project task custom fields" on public.project_task_custom_fields;
+create policy "Editors can add project task custom fields"
+  on public.project_task_custom_fields
+  for insert to authenticated
+  with check (
+    created_by = (select auth.uid())
+    and public.current_project_role(project_id) in ('owner', 'editor')
+  );
+
+grant select, insert on public.project_task_custom_fields to authenticated;
