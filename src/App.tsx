@@ -408,7 +408,7 @@ function CommentThread({title,comments,canComment,canManage,currentUserId,commen
   </section>
 }
 
-function statusLabel(status: TaskStatus) { return status === 'todo' ? 'To do' : status === 'in_progress' ? 'In progress' : 'Done' }
+function statusLabel(status: TaskStatus) { return status === 'todo' ? 'To be started' : status === 'in_progress' ? 'Ongoing' : 'Completed' }
 function Stat({ icon, label, value, foot, tone }: { icon: any; label: string; value: string; foot: string; tone: string }) {
   return <div className="stat-card"><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}>{icon}</div></div><div className="stat-value">{value}</div><div className="stat-foot">{foot}</div></div>
 }
