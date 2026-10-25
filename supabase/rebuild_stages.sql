@@ -76,7 +76,7 @@ create or replace function public.validate_task_stage_project()
 returns trigger
 language plpgsql
 set search_path = ''
-as $
+as $function$
 declare
   stage_project uuid;
 begin
@@ -88,7 +88,7 @@ begin
   end if;
   return new;
 end;
-$;
+$function$;
 
 drop trigger if exists project_tasks_validate_stage_project on public.project_tasks;
 create trigger project_tasks_validate_stage_project
