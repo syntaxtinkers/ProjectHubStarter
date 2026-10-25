@@ -311,7 +311,7 @@ export default function App() {
             </div>
             <div className="content-grid">
               <section className="panel">
-                <div className="panel-heading"><div><h2>Task progress</h2><p>Track work across the project.</p></div><button className="text-button" onClick={()=>setTab('tasks')}>View tasks →</button></div>
+                <div className="panel-heading"><div><h2>Task progress</h2><p>Track work across the project.</p></div><button className="text-button" onClick={()=>setTab('stages')}>View stages →</button></div>
                 <div className="overview-progress">{(['todo','in_progress','done'] as TaskStatus[]).map(s=><div className="progress-row" key={s}><span>{statusLabel(s)}</span><div className="progress-track"><div className={`progress-fill ${s}`} style={{width:`${tasks.length ? tasks.filter(t=>t.status===s).length/tasks.length*100 : 0}%`}}/></div><b>{tasks.filter(t=>t.status===s).length}</b></div>)}</div>
                 <div className="panel-heading"><div><h2>Upcoming tasks</h2><p>Nearest deadlines first.</p></div><CalendarDays size={18}/></div>
                 <div className="task-list">{tasks.filter(t=>t.status!=='done').sort((a,b)=>(a.due_date??'9999').localeCompare(b.due_date??'9999')).slice(0,5).map(t=><TaskRow key={t.id} task={t} canEdit={canEdit(selected.role)} onStatus={s=>updateTask(t,{status:s})} onDelete={()=>deleteTask(t)}/>)}{tasks.filter(t=>t.status!=='done').length===0&&<Empty icon={<CircleCheck/>} title="No open tasks" body="Create a task to start planning this project."/>}</div>
