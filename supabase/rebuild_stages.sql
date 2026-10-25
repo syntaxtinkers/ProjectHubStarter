@@ -69,6 +69,32 @@ begin
   end if;
 end $$;
 
+alter table public.project_tasks validate constraint project_tasks_stage_id_not_null_check;
+
+-- Prevent a task from being linked to a stage in a different project.
+create or replace function public.validate_task_stage_project()
+returns trigger
+language plpgsql
+set search_path = ''
+as $
+declare
+  stage_project uuid;
+begin
+  select s.project_id into stage_project
+  from public.project_stages s
+  where s.id = new.stage_id;
+  if stage_project is null or stage_project <> new.project_id then
+    raise exception 'Task stage must belong to the same project as the task';
+  end if;
+  return new;
+end;
+$;
+
+drop trigger if exists project_tasks_validate_stage_project on public.project_tasks;
+create trigger project_tasks_validate_stage_project
+before insert or update of project_id, stage_id on public.project_tasks
+for each row execute function public.validate_task_stage_project();
+
 -- Stage-level and task-level comments, separate from the existing project discussion.
 create table if not exists public.stage_comments (
   id uuid primary key default gen_random_uuid(),
