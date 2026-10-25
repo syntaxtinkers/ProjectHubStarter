@@ -20,7 +20,7 @@ export default function CalendarView({ stages, tasks, month, setMonth, onOpenSta
       const date=key(day), due=tasks.filter(t=>t.due_date===date), overdue=due.filter(t=>t.status!=='done'&&date<today)
       return <div key={date} className={'calendar-day'+(day.getMonth()!==month.getMonth()?' outside-month':'')+(date===today?' today':'')+(due.length?' has-deadline':'')}>
         <span className="calendar-day-number">{day.getDate()}</span>
-        {due.map(task=>{const stage=stages.find(s=>s.id===task.stage_id);return <button key={task.id} className={'calendar-event '+(task.status==='done'?' event-done':' event-deadline')+(task.status!=='done'&&date<today?' event-overdue':'')} title={stage?.name+' · '+task.title} onClick={()=>stage&&onOpenStage(stage.id)}>{task.status!=='done'&&date<today&&<AlertCircle size={11}/>}<span>{task.title}</span></button>})}
+        {due.map(task=>{const stage=stages.find(s=>s.id===task.stage_id);return <button key={task.id} className={'calendar-event '+(task.status==='done'?' event-done':' event-deadline')+(task.status!=='done'&&date<today?' event-overdue':'')} title={stage?.name+' · '+task.title} onClick={()=>stage&&onOpenStage(stage.id)}>{task.status!=='done'&&date<today&&<AlertCircle size={11}/>}<span>{(stage?.name ? stage.name + ': ' : '') + task.title}</span></button>})}
         {overdue.length>0&&<span className="calendar-overdue-count">{overdue.length} missed</span>}
       </div>
     })}</div>
