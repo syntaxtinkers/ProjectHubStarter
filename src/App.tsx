@@ -201,6 +201,26 @@ export default function App() {
       setNotice('Project duplication stopped: '+(error?.message ?? 'Unknown error')+'. The original project has not been changed. Check whether a partially created copy needs removing.')
     } finally { setBusy(false) }
   }
+  async function removeProjectFromWorkspace() {
+    if (!supabase || !session?.user || !selected || !canEdit(selected.role)) return
+    const projectNameToRemove = selected.name
+    if (!confirm(`WARNING 1 OF 3: Remove “${projectNameToRemove}” from your project list? This will remove only your access. The project, stages, tasks, comments, custom columns, and all saved input data will remain in the database and other members' access will not be changed.`)) return
+    if (!confirm(`WARNING 2 OF 3: You will no longer see “${projectNameToRemove}” in this workspace after removal. This action does NOT delete project data, but restoring your access may require another project member or database administrator.`)) return
+    const typedName = prompt(`FINAL WARNING 3 OF 3: To confirm removal, type the project name exactly:\n\n${projectNameToRemove}`)
+    if (typedName !== projectNameToRemove) { setNotice('Project removal cancelled: the name did not match.'); return }
+    setBusy(true)
+    const { error } = await supabase.from('project_members').delete().eq('project_id', selected.id).eq('user_id', session.user.id)
+    if (error) {
+      setNotice('Could not remove project from your workspace: ' + error.message)
+    } else {
+      setSelectedId(null)
+      setSelectedStageId(null)
+      setTab('home')
+      await loadProjects()
+      setNotice(`“${projectNameToRemove}” was removed from your project list. No project, task, stage, comment, or custom-field data was deleted.`)
+    }
+    setBusy(false)
+  }
   async function addComment(e: FormEvent) {
     e.preventDefault(); if (!supabase || !session?.user || !selected || !commentText.trim()) return
     setBusy(true)
@@ -421,7 +441,7 @@ export default function App() {
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
         {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> : !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
-          <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={()=>void duplicateProject()} title="Duplicate this project with all stages and tasks"><FolderKanban size={14}/> Duplicate project</button>}{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}</div></div>
+          <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={()=>void duplicateProject()} title="Duplicate this project with all stages and tasks"><FolderKanban size={14}/> Duplicate project</button>}{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}{canEdit(selected.role)&&<button className="outline-button danger-outline" disabled={busy} onClick={()=>void removeProjectFromWorkspace()} title="Remove this project from your list without deleting its data"><Trash2 size={14}/> Remove project</button>}</div></div>
           {tab==='overview' && <>
             <div className="stats-grid">
               <Stat icon={<ListTodo size={17}/>} label="OPEN TASKS" value={tasks.filter(t=>t.status!=='done').length.toString()} foot={`${tasks.filter(t=>t.status==='done').length} completed`} tone="purple"/>
