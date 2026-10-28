@@ -1024,7 +1024,7 @@ type DailyWorkUpdate = { id:string; task_id:string; user_id:string; work_date:st
 function localIsoDate(date:Date) { return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0') }
 function mondayOf(date:Date) { const d=new Date(date.getFullYear(),date.getMonth(),date.getDate());const day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d }
 function shiftIsoDate(iso:string,days:number) { const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+days);return localIsoDate(d) }
-function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers,onOpenProject}:{projects:Project[];tasks:Task[];stages:Stage[];currentUserId:string;companyMembers:CompanyMember[];onOpenProject:(id:string)=>void}) {
+function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers,onOpenProject,onTaskStatusChanged}:{projects:Project[];tasks:Task[];stages:Stage[];currentUserId:string;companyMembers:CompanyMember[];onOpenProject:(id:string)=>void;onTaskStatusChanged:(taskId:string,status:TaskStatus)=>void}) {
   const today=localIsoDate(new Date()),weekStart=localIsoDate(mondayOf(new Date())),weekEnd=shiftIsoDate(weekStart,5)
   const [view,setView]=useState<'assigned_to_you'|'assigned_by_you'>('assigned_to_you')
   const [updates,setUpdates]=useState<DailyWorkUpdate[]>([]),[saving,setSaving]=useState<string|null>(null),[error,setError]=useState(''),[loaded,setLoaded]=useState(false)
@@ -1074,15 +1074,21 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
     void markPastDays();return()=>{cancelled=true}
   },[loaded,view,weekStart,today,weekTasks.map(t=>t.id).join('|'),updates.map(u=>u.task_id+'|'+u.work_date).join(';'),currentUserId])
   const setStatus=async(task:Task,date:string,status:DailyWorkStatus)=>{
-    if(!supabase||view!=='assigned_to_you')return
+    if(!supabase||view!=='assigned_to_you'||date!==today)return
     const key=updateKey(task.id,date);setSaving(key);setError('')
-    const {data,error:writeError}=await supabase.from('task_daily_updates').upsert({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status,updated_by:currentUserId,is_automatic:false},{onConflict:'task_id,user_id,work_date'}).select('*').single()
-    if(writeError)setError(writeError.message);else setUpdates(old=>[...old.filter(u=>!(u.task_id===task.id&&u.work_date===date)),data as DailyWorkUpdate])
+    const {data,error:writeError}=await supabase.rpc('set_task_daily_status',{p_task_id:task.id,p_work_date:date,p_status:status})
+    if(writeError)setError(writeError.message);else {setUpdates(old=>[...old.filter(u=>!(u.task_id===task.id&&u.work_date===date)),data as DailyWorkUpdate]);onTaskStatusChanged(task.id,status==='completed'?'done':status==='ongoing'?'in_progress':'todo')}
     setSaving(null)
   }
-  const statusAt=(task:Task,date:string):DailyWorkStatus=>task.status==='done'?'completed':updateMap.get(updateKey(task.id,date))??'not_started'
-  const wasCompletedBefore=(task:Task,date:string)=>task.status==='done'||updates.some(u=>u.task_id===task.id&&u.work_date<=date&&u.status==='completed')
-  const taskIsOnDay=(task:Task,date:string)=>date>=scheduledDate(task)&&date<=weekEnd&&!wasCompletedBefore(task,shiftIsoDate(date,-1))
+  const statusAt=(task:Task,date:string):DailyWorkStatus=>updateMap.get(updateKey(task.id,date))??(task.status==='done'?'completed':'not_started')
+  const completedDates=(task:Task)=>updates.filter(u=>u.task_id===task.id&&u.status==='completed').map(u=>u.work_date).sort()
+  const taskIsOnDay=(task:Task,date:string)=>{
+    if(date<scheduledDate(task)||date>weekEnd)return false
+    const doneDates=completedDates(task)
+    if(doneDates.some(doneDate=>doneDate<date))return false
+    if(task.status==='done'&&!doneDates.includes(date))return false
+    return true
+  }
   const total=weekTasks.length,completed=weekTasks.filter(task=>task.status==='done'||updates.some(u=>u.task_id===task.id&&u.week_start===weekStart&&u.status==='completed')).length
   const efficiency=total?Math.round(completed/total*100):100
   const nameFor=(task:Task)=>{if(task.assigned_to_user_id===currentUserId)return 'You';const member=companyMembers.find(m=>m.user_id===task.assigned_to_user_id);return member?.full_name||member?.email||task.assigned_to_name||('Member '+(task.assigned_to_user_id??'').slice(0,8))}
@@ -1099,7 +1105,7 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
       const items=dayTasks(date)
       return <section className={'weekly-day-card '+(date===today?'today':'')} key={date}><header><b>{dayName(date)}</b><span>{dateShort(date)}</span></header>
         {items.length===0?<p className="weekly-day-empty">No work scheduled</p>:items.map(task=>{
-          const st=statusAt(task,date),info=displayFor(task),key=updateKey(task.id,date),readOnly=view==='assigned_by_you'||date>today||task.status==='done'
+          const st=statusAt(task,date),info=displayFor(task),key=updateKey(task.id,date),readOnly=view==='assigned_by_you'||date!==today
           return <article className="weekly-day-task" key={task.id}><div className="weekly-task-meta"><b>{info.project}</b><small>{info.stage}{task.due_date?' · Due '+dateShort(task.due_date):''}</small></div><div className="weekly-task-name">{task.title}</div>{view==='assigned_by_you'&&<div className="weekly-assignee">Assigned to: {nameFor(task)}</div>}
             <div className="weekly-task-status"><select aria-label={'Status for '+task.title+' on '+date} disabled={readOnly||saving===key} value={st} onChange={e=>void setStatus(task,date,e.target.value as DailyWorkStatus)}><option value="not_started">Not started</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option></select>{saving===key&&<LoaderCircle size={13} className="spin"/>}</div>
             {date<today&&st==='not_started'&&<small className="weekly-carry-note">Carried forward</small>}
@@ -1133,7 +1139,7 @@ function GlobalDashboard({projects,currentUserId,currentUserEmail,companyMembers
   },[projects.map(p=>p.id).join('|')])
   return <section className="global-dashboard">
     <div className="dashboard-welcome"><div><span className="eyebrow"><span className="live-dot"/> CKPC PROJECT HUB</span><h1>Your projects, <span>at a glance.</span></h1><p>Track every stage and see ongoing, pending and completed work across your projects.</p></div><button className="primary" onClick={onCreateProject}><Plus size={16}/> New project</button></div>
-    <WeeklyWorkDashboard projects={projects} tasks={tasks} stages={stages} currentUserId={currentUserId} companyMembers={companyMembers} onOpenProject={onOpenProject}/>
+    <WeeklyWorkDashboard projects={projects} tasks={tasks} stages={stages} currentUserId={currentUserId} companyMembers={companyMembers} onOpenProject={onOpenProject} onTaskStatusChanged={(taskId,status)=>setTasks(current=>current.map(task=>task.id===taskId?{...task,status}:task))}/>
     <div className="dashboard-summary"><div><span>PROJECTS</span><b>{projects.length}</b></div><div><span>ACTIVE TASKS</span><b>{tasks.filter(t=>t.status==='in_progress').length}</b></div><div><span>PENDING TASKS</span><b>{tasks.filter(t=>t.status==='todo').length}</b></div><div><span>COMPLETED</span><b>{tasks.filter(t=>t.status==='done').length}</b></div></div>
     {loading?<div className="panel dashboard-loading"><LoaderCircle className="spin"/> Loading project summaries…</div>:projects.length===0?<div className="panel dashboard-empty"><FolderKanban size={28}/><h2>No projects yet</h2><p>Create your first project to see stages and task progress here.</p><button className="primary" onClick={onCreateProject}><Plus size={16}/> Create project</button></div>:<div className="dashboard-project-grid">{projects.map((project,index)=>{
       const ps=stages.filter(s=>s.project_id===project.id),pt=tasks.filter(t=>t.project_id===project.id),done=pt.filter(t=>t.status==='done').length,pct=pt.length?Math.round(done/pt.length*100):0
