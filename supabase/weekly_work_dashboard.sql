@@ -191,10 +191,12 @@ as $$
       left join public.project_stages s on s.id=t.stage_id
       where t.assigned_to_user_id=cm.user_id
         and t.status <> 'done'
-        and coalesce(t.start_date,t.due_date) is not null
-        and coalesce(t.start_date,t.due_date) <= p_date
-        and (t.due_date is null or t.due_date >= p_date or t.due_date < p_date)
-        and (t.start_date is null or t.start_date <= p_date)
+        and (t.start_date is not null or t.due_date is not null)
+        and (
+          (t.start_date is not null and t.start_date <= p_date)
+          or (t.due_date between p_date and p_date + 5)
+          or (t.due_date < p_date)
+        )
     ), '[]'::jsonb)
   from public.company_members cm
   join public.companies c on c.id=cm.company_id
