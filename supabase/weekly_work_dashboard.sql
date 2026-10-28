@@ -147,7 +147,139 @@ for each row execute function public.guard_task_assignment_users();
 create table if not exists public.company_member_contacts (
   company_id uuid not null references public.companies(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  phone_e164 text not null check (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),
+  phone_e164 text not null check (phone_e164 ~ '^\+[1-9][0-9]{7,14} timestamptz not null default now(),
+  updated_by uuid references auth.users(id) on delete set null,
+  primary key (company_id,user_id),
+  foreign key (company_id,user_id) references public.company_members(company_id,user_id) on delete cascade
+);
+alter table public.company_member_contacts add column if not exists whatsapp_opted_in boolean not null default false;
+alter table public.company_member_contacts enable row level security;
+drop policy if exists "Company admins manage private member contacts" on public.company_member_contacts;
+create policy "Company admins manage private member contacts"
+on public.company_member_contacts for all to authenticated
+using (public.is_company_admin(company_id))
+with check (public.is_company_admin(company_id));
+grant select,insert,update,delete on public.company_member_contacts to authenticated;
+grant all privileges on public.company_member_contacts to service_role;
+
+grant select,insert,update on public.task_daily_updates to authenticated;
+grant all privileges on public.task_daily_updates to service_role;
+
+create or replace function public.get_company_daily_work_digest(p_date date default ((now() at time zone 'Asia/Kolkata')::date))
+returns table(company_id uuid, company_name text, user_id uuid, employee_name text, phone_e164 text, work_items jsonb)
+language sql stable security definer set search_path = ''
+as $$
+  select c.id, c.name, cm.user_id,
+    coalesce(nullif(trim(cm.full_name),''), au.email, 'Employee'),
+    contact.phone_e164,
+    coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'project', p.name,
+        'stage', coalesce(s.name,'Stage'),
+        'task', t.title,
+        'start_date', t.start_date,
+        'due_date', t.due_date,
+        'status', t.status
+      ) order by coalesce(t.due_date,t.start_date,'9999-12-31'::date), p.name, t.title)
+      from public.project_tasks t
+      join public.projects p on p.id=t.project_id
+      join public.company_projects cp on cp.project_id=p.id and cp.company_id=c.id
+      left join public.project_stages s on s.id=t.stage_id
+      where t.assigned_to_user_id=cm.user_id
+        and t.status <> 'done'
+        and (t.start_date is not null or t.due_date is not null)
+        and (
+          (t.start_date is not null and t.start_date <= p_date)
+          or (t.due_date between p_date and p_date + 5)
+          or (t.due_date < p_date)
+        )
+    ), '[]'::jsonb)
+  from public.company_members cm
+  join public.companies c on c.id=cm.company_id
+  join auth.users au on au.id=cm.user_id
+  join public.company_member_contacts contact on contact.company_id=cm.company_id and contact.user_id=cm.user_id
+  where contact.phone_e164 is not null and contact.whatsapp_opted_in = true
+  order by c.name, coalesce(nullif(trim(cm.full_name),''),au.email);
+$$;
+revoke all on function public.get_company_daily_work_digest(date) from public, anon, authenticated;
+grant execute on function public.get_company_daily_work_digest(date) to service_role;
+
+
+-- Materialize the default "not started" status after each workday, even if the employee
+-- does not open the dashboard. Completed items are not carried into later days.
+create or replace function public.materialize_daily_work_defaults(p_date date default (((now() at time zone 'Asia/Kolkata')::date) - 1))
+returns integer
+language plpgsql security definer set search_path = ''
+as $$
+declare inserted_count integer := 0;
+begin
+  if extract(isodow from p_date) not between 1 and 6 then return 0; end if;
+  insert into public.task_daily_updates(task_id,user_id,work_date,week_start,status,updated_by,is_automatic)
+  select t.id, t.assigned_to_user_id, p_date,
+    p_date - (extract(isodow from p_date)::int - 1),
+    'not_started', t.assigned_to_user_id, true
+  from public.project_tasks t
+  where t.assigned_to_user_id is not null
+    and t.status <> 'done'
+    and coalesce(t.start_date,t.due_date) is not null
+    and coalesce(t.start_date,t.due_date) <= p_date
+    and not exists (
+      select 1 from public.task_daily_updates existing
+      where existing.task_id=t.id and existing.user_id=t.assigned_to_user_id and existing.work_date=p_date
+    )
+    and not exists (
+      select 1 from public.task_daily_updates completed
+      where completed.task_id=t.id and completed.user_id=t.assigned_to_user_id
+        and completed.week_start=p_date - (extract(isodow from p_date)::int - 1)
+        and completed.work_date<p_date and completed.status='completed'
+    );
+  get diagnostics inserted_count = row_count;
+  return inserted_count;
+end;
+$$;
+revoke all on function public.materialize_daily_work_defaults(date) from public, anon, authenticated;
+grant execute on function public.materialize_daily_work_defaults(date) to service_role;
+
+
+-- Assigned employees can update the status of their own assigned task through the daily planner,
+-- without needing project-editor permissions. The RPC validates identity server-side.
+create or replace function public.set_task_daily_status(p_task_id uuid, p_work_date date, p_status text)
+returns public.task_daily_updates
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  caller_id uuid := auth.uid();
+  assigned_user uuid;
+  week_monday date;
+  saved_update public.task_daily_updates;
+begin
+  if caller_id is null then raise exception 'Sign in is required'; end if;
+  if p_status not in ('not_started','ongoing','completed') then raise exception 'Invalid work status'; end if;
+  if p_work_date <> ((now() at time zone 'Asia/Kolkata')::date) then
+    raise exception 'Daily status can only be changed for today';
+  end if;
+  select t.assigned_to_user_id into assigned_user
+  from public.project_tasks t where t.id=p_task_id;
+  if assigned_user is distinct from caller_id then
+    raise exception 'You can update only work assigned to your account';
+  end if;
+  week_monday := p_work_date - (extract(isodow from p_work_date)::int - 1);
+  insert into public.task_daily_updates(task_id,user_id,work_date,week_start,status,updated_by,is_automatic)
+  values (p_task_id,caller_id,p_work_date,week_monday,p_status,caller_id,false)
+  on conflict (task_id,user_id,work_date)
+  do update set status=excluded.status, updated_at=now(), updated_by=caller_id, is_automatic=false
+  returning * into saved_update;
+
+  update public.project_tasks
+  set status = case p_status when 'completed' then 'done' when 'ongoing' then 'in_progress' else 'todo' end
+  where id=p_task_id;
+  return saved_update;
+end;
+$$;
+revoke all on function public.set_task_daily_status(uuid,date,text) from public, anon;
+grant execute on function public.set_task_daily_status(uuid,date,text) to authenticated;
+),
+  whatsapp_opted_in boolean not null default false,
   updated_at timestamptz not null default now(),
   updated_by uuid references auth.users(id) on delete set null,
   primary key (company_id,user_id),
