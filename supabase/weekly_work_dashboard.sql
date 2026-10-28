@@ -239,3 +239,42 @@ end;
 $$;
 revoke all on function public.materialize_daily_work_defaults(date) from public, anon, authenticated;
 grant execute on function public.materialize_daily_work_defaults(date) to service_role;
+
+
+-- Assigned employees can update the status of their own assigned task through the daily planner,
+-- without needing project-editor permissions. The RPC validates identity server-side.
+create or replace function public.set_task_daily_status(p_task_id uuid, p_work_date date, p_status text)
+returns public.task_daily_updates
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  caller_id uuid := auth.uid();
+  assigned_user uuid;
+  week_monday date;
+  saved_update public.task_daily_updates;
+begin
+  if caller_id is null then raise exception 'Sign in is required'; end if;
+  if p_status not in ('not_started','ongoing','completed') then raise exception 'Invalid work status'; end if;
+  if p_work_date <> ((now() at time zone 'Asia/Kolkata')::date) then
+    raise exception 'Daily status can only be changed for today';
+  end if;
+  select t.assigned_to_user_id into assigned_user
+  from public.project_tasks t where t.id=p_task_id;
+  if assigned_user is distinct from caller_id then
+    raise exception 'You can update only work assigned to your account';
+  end if;
+  week_monday := p_work_date - (extract(isodow from p_work_date)::int - 1);
+  insert into public.task_daily_updates(task_id,user_id,work_date,week_start,status,updated_by,is_automatic)
+  values (p_task_id,caller_id,p_work_date,week_monday,p_status,caller_id,false)
+  on conflict (task_id,user_id,work_date)
+  do update set status=excluded.status, updated_at=now(), updated_by=caller_id, is_automatic=false
+  returning * into saved_update;
+
+  update public.project_tasks
+  set status = case p_status when 'completed' then 'done' when 'ongoing' then 'in_progress' else 'todo' end
+  where id=p_task_id;
+  return saved_update;
+end;
+$$;
+revoke all on function public.set_task_daily_status(uuid,date,text) from public, anon;
+grant execute on function public.set_task_daily_status(uuid,date,text) to authenticated;
