@@ -25,8 +25,7 @@ create table if not exists public.company_leave (
   status text not null default 'active' check (status in ('active','cancelled')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (end_date >= start_date),
-  check (start_date >= ((now() at time zone 'Asia/Kolkata')::date))
+  check (end_date >= start_date)
 );
 
 create table if not exists public.company_whatsapp_settings (
@@ -132,6 +131,7 @@ create policy "Company admins can read notification delivery status" on public.c
 for select to authenticated using (public.is_company_admin(company_id));
 
 grant select on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to authenticated;
+grant select, insert, update on public.company_attendance_notification_runs to service_role;
 revoke insert, update, delete on public.company_attendance, public.company_leave, public.company_whatsapp_settings from authenticated;
 grant insert (company_id, user_id, attendance_date, work_mode) on public.company_attendance to authenticated;
 grant update (work_mode) on public.company_attendance to authenticated;
