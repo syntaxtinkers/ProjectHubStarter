@@ -66,8 +66,20 @@ Deno.serve(async (request: Request) => {
   const { data: rows, error: readError } = await admin.rpc("get_company_attendance_notification_rows", { p_date: attendanceDate });
   if (readError) return json(500, { error: "Could not load the daily attendance snapshot: " + readError.message });
 
-  const byCompany = new Map<string, typeof rows>();
-  for (const row of rows ?? []) {
+  type NotificationRow = {
+    company_id: string;
+    company_name: string;
+    group_id: string;
+    group_name: string;
+    user_id: string;
+    employee_name: string;
+    attendance_status: string;
+    work_mode: string | null;
+    started_at: string | null;
+  };
+  const notificationRows = (rows ?? []) as NotificationRow[];
+  const byCompany = new Map<string, NotificationRow[]>();
+  for (const row of notificationRows) {
     const list = byCompany.get(row.company_id) ?? [];
     list.push(row);
     byCompany.set(row.company_id, list);
