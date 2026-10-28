@@ -1,3 +1,4 @@
+// Supabase Edge Function: invite-company-member
 // Required Edge Function secrets:
 //   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (provided by Supabase)
 //   RESEND_API_KEY, INVITE_FROM_EMAIL (a verified sender), APP_URL (e.g. https://project-hub-starter.vercel.app)
