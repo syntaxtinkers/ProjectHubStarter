@@ -72,7 +72,17 @@ using (user_id = (select auth.uid()) and exists (
       or t.assigned_by_user_id = (select auth.uid())
       or t.created_by = (select auth.uid()))
 ))
-with check (user_id = (select auth.uid()) and updated_by = (select auth.uid()));
+with check (
+  user_id = (select auth.uid())
+  and updated_by = (select auth.uid())
+  and exists (
+    select 1 from public.project_tasks t
+    where t.id = task_daily_updates.task_id
+      and (t.assigned_to_user_id = (select auth.uid())
+        or t.assigned_by_user_id = (select auth.uid())
+        or t.created_by = (select auth.uid()))
+  )
+);
 
 create or replace function public.company_weekly_completion(p_company_id uuid, p_week_start date default ((now() at time zone 'Asia/Kolkata')::date - (extract(isodow from (now() at time zone 'Asia/Kolkata')::date)::int - 1)))
 returns table(user_id uuid, employee_name text, role text, total_work bigint, completed_work bigint, completion_percent integer)
