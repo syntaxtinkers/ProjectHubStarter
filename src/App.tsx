@@ -23,7 +23,7 @@ type Member = { user_id: string; role: Role; joined_at: string; email?: string }
 type CompanyRole = 'admin' | 'employee'
 type CompanyTheme = { preset: string; bg: string; panel: string; panel2: string; text: string; muted: string; border: string; accent: string; accent2: string }
 type Company = { id: string; name: string; slug: string; logo_url: string | null; theme: CompanyTheme; created_by: string; role?: CompanyRole }
-type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; joined_at: string }
+type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; phone_e164?: string | null; joined_at: string }
 type CompanyProjectRow = { project_id: string; project_name: string; project_description: string | null; stage_id: string | null; stage_name: string | null; stage_start: string | null; stage_end: string | null; stage_order: number; assigned_employees: string[] }
 type CompanyAssignment = { company_id: string; project_id: string; user_id: string; assigned_by: string; assigned_at: string }
 type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'work_from_home'; started_at: string; editable_until: string; frozen_at: string | null }
@@ -227,7 +227,15 @@ export default function App() {
       supabase.from('company_project_assignments').select('*').eq('company_id', companyId)
     ])
     if (membersResult.error) setNotice('Could not load employee details: ' + membersResult.error.message)
-    else setCompanyMembers((membersResult.data ?? []) as CompanyMember[])
+    else {
+      let contacts: {user_id:string;phone_e164:string}[]=[]
+      if (companies.find(company=>company.id===companyId)?.role==='admin') {
+        const {data:contactRows,error:contactError}=await supabase.from('company_member_contacts').select('user_id,phone_e164').eq('company_id',companyId)
+        if (contactError) setNotice('Employee WhatsApp numbers need the weekly_work_dashboard.sql migration: '+contactError.message)
+        else contacts=(contactRows??[]) as {user_id:string;phone_e164:string}[]
+      }
+      setCompanyMembers(((membersResult.data ?? []) as CompanyMember[]).map(member=>({...member,phone_e164:contacts.find(contact=>contact.user_id===member.user_id)?.phone_e164??null})))
+    }
     if (projectsResult.error) setNotice('Could not load company deadlines: ' + projectsResult.error.message)
     else setCompanyRows((projectsResult.data ?? []) as CompanyProjectRow[])
     if (assignmentResult.error) setNotice('Could not load assignments: ' + assignmentResult.error.message)
@@ -326,11 +334,23 @@ export default function App() {
     else { await loadCompanyData(selectedCompany.id); setNotice('Employee assigned to the project.') }
     setBusy(false)
   }
-  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title'>>) {
-    if (!supabase || !selectedCompany || !isCompanyAdmin || member.user_id === session.user.id) return
-    const { error } = await supabase.from('company_members').update(patch).eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
-    if (error) setNotice('Could not update employee: ' + error.message)
-    else { await loadCompanyData(selectedCompany.id); setNotice('Employee details updated.') }
+  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title' | 'phone_e164'>>) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin) return
+    const { phone_e164, ...profilePatch } = patch
+    if (member.user_id === session.user.id && Object.keys(profilePatch).length) return
+    if (Object.keys(profilePatch).length) {
+      const { error } = await supabase.from('company_members').update(profilePatch).eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
+      if (error) { setNotice('Could not update employee: ' + error.message); return }
+    }
+    if (phone_e164 !== undefined) {
+      const phone = phone_e164.trim()
+      if (phone && !/^\\+[1-9][0-9]{7,14}$/.test(phone)) { setNotice('Enter the WhatsApp number in international E.164 format, e.g. +919876543210.'); return }
+      const result = phone
+        ? await supabase.from('company_member_contacts').upsert({company_id:selectedCompany.id,user_id:member.user_id,phone_e164:phone,updated_by:session.user.id,updated_at:new Date().toISOString()},{onConflict:'company_id,user_id'})
+        : await supabase.from('company_member_contacts').delete().eq('company_id',selectedCompany.id).eq('user_id',member.user_id)
+      if (result.error) { setNotice('Could not save WhatsApp number: '+result.error.message); return }
+    }
+    await loadCompanyData(selectedCompany.id); setNotice('Employee details updated.')
   }
   async function removeCompanyMember(member: CompanyMember) {
     if (!supabase || !selectedCompany || !isCompanyAdmin || member.user_id === session.user.id) return
@@ -912,7 +932,7 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;
  onSave:(patch:Partial<Pick<Company,'name'|'logo_url'|'theme'>>)=>Promise<void>;onLogoUpload:(file:File)=>Promise<void>;
  onInvite:(e:FormEvent)=>void;onLinkProject:()=>Promise<void>;onUnlinkProject:(id:string)=>Promise<void>;onAssign:()=>Promise<void>;
- onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
+ onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
  linkProjectId:string;setLinkProjectId:(id:string)=>void;inviteEmail:string;setInviteEmail:(email:string)=>void;inviteRole:CompanyRole;setInviteRole:(role:CompanyRole)=>void;assignProjectId:string;setAssignProjectId:(id:string)=>void;assignEmployeeId:string;setAssignEmployeeId:(id:string)=>void;
 }) {
  const [name,setName]=useState(company.name)
@@ -963,9 +983,9 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
    <section className="panel">
     <div className="panel-heading"><div><h2>Employees & admins</h2><p>Company roster and access. Project assignments do not alter project-level roles.</p></div><Users size={19}/></div>
     {isAdmin&&<form className="invite-form company-invite-form" onSubmit={onInvite}><div className="form-grid"><label>Invite by email<input type="email" autoComplete="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="partner@company.com" required/></label><label>Company role<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as CompanyRole)}><option value="admin">Admin / partner</option><option value="employee">Employee</option></select></label></div><button className="primary compact" disabled={busy||!inviteEmail.trim()}><Mail size={15}/>{busy?'Sending…':'Send invitation email'}</button><p className="muted tiny">Sending requires the invite-company-member Edge Function plus email-provider secrets. Invitations only grant company membership; they do not add the person to individual projects.</p></form>}
-    <div className="compact-table-wrap"><table className="compact-table company-members-table"><thead><tr><th>Employee name</th><th>Email</th><th>Job title</th><th>Company role</th>{isAdmin&&<th>Actions</th>}</tr></thead><tbody>
+    <div className="compact-table-wrap"><table className="compact-table company-members-table"><thead><tr><th>Employee name</th><th>Email</th><th>Job title</th>{isAdmin&&<th>WhatsApp number</th>}<th>Company role</th>{isAdmin&&<th>Actions</th>}</tr></thead><tbody>
      {members.map(member=><CompanyMemberEditor key={member.user_id} member={member} isAdmin={isAdmin} currentMember={member.user_id===company.created_by} onSave={patch=>onMemberUpdate(member,patch)} onRemove={()=>void onRemoveMember(member)}/>)}
-     {members.length===0&&<tr><td colSpan={isAdmin?5:4}>No company members found.</td></tr>}
+     {members.length===0&&<tr><td colSpan={isAdmin?6:4}>No company members found.</td></tr>}
     </tbody></table></div>
    </section>
    {isAdmin&&members.some(m=>m.role==='employee')&&projectList.length>0&&<section className="panel"><div className="panel-heading"><div><h2>Assign employees to projects</h2><p>Set a company-level assignment so the employee appears in the combined deadline table.</p></div><UserCheck size={19}/></div>
@@ -976,12 +996,14 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  </section>
 }
 
-function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemove:()=>void}) {
+function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'>>)=>Promise<void>;onRemove:()=>void}) {
  const [name,setName]=useState(member.full_name)
  const [job,setJob]=useState(member.job_title??'')
- useEffect(()=>{setName(member.full_name);setJob(member.job_title??'')},[member.full_name,member.job_title])
+ const [phone,setPhone]=useState(member.phone_e164??'')
+ useEffect(()=>{setName(member.full_name);setJob(member.job_title??'');setPhone(member.phone_e164??'')},[member.full_name,member.job_title,member.phone_e164])
  const changed=name.trim()!==member.full_name||job!==(member.job_title??'')
- return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td><td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
+ const phoneChanged=phone.trim()!==(member.phone_e164??'')
+ return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td><td>{isAdmin?<input className="company-cell-input company-phone-input" aria-label="WhatsApp number in international format" value={phone} placeholder="+919876543210" onChange={e=>setPhone(e.target.value)} onBlur={()=>{if(phoneChanged)void onSave({phone_e164:phone.trim()})}}/>:(member.phone_e164||'—')}</td><td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
 }
 
 function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start:Date;end:Date;span:number}) {
