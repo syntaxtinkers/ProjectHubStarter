@@ -1020,7 +1020,7 @@ function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start
 
 
 type DailyWorkStatus = 'not_started' | 'ongoing' | 'completed'
-type DailyWorkUpdate = { id:string; task_id:string; user_id:string; work_date:string; week_start:string; status:DailyWorkStatus; updated_at:string }
+type DailyWorkUpdate = { id:string; task_id:string; user_id:string; work_date:string; week_start:string; status:DailyWorkStatus; updated_at:string; is_automatic?:boolean }
 function localIsoDate(date:Date) { return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0') }
 function mondayOf(date:Date) { const d=new Date(date.getFullYear(),date.getMonth(),date.getDate());const day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d }
 function shiftIsoDate(iso:string,days:number) { const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+days);return localIsoDate(d) }
@@ -1058,11 +1058,11 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
     if(!loaded||!supabase||view!=='assigned_to_you')return
     let cancelled=false
     async function markPastDays(){
-      const missing:{task_id:string;user_id:string;work_date:string;week_start:string;status:DailyWorkStatus;updated_by:string}[]=[]
+      const missing:{task_id:string;user_id:string;work_date:string;week_start:string;status:DailyWorkStatus;updated_by:string;is_automatic:boolean}[]=[]
       for(const task of weekTasks.filter(t=>t.status!=='done'))for(let offset=0;offset<6;offset++){
         const date=shiftIsoDate(weekStart,offset)
         if(date>=today||date<scheduledDate(task))continue
-        if(!updates.some(u=>u.task_id===task.id&&u.work_date===date))missing.push({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status:'not_started',updated_by:currentUserId})
+        if(!updates.some(u=>u.task_id===task.id&&u.work_date===date))missing.push({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status:'not_started',updated_by:currentUserId,is_automatic:true})
       }
       if(missing.length&&!cancelled){
         const {data,error:writeError}=await supabase!.from('task_daily_updates').upsert(missing,{onConflict:'task_id,user_id,work_date'}).select('*')
@@ -1076,7 +1076,7 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
   const setStatus=async(task:Task,date:string,status:DailyWorkStatus)=>{
     if(!supabase||view!=='assigned_to_you')return
     const key=updateKey(task.id,date);setSaving(key);setError('')
-    const {data,error:writeError}=await supabase.from('task_daily_updates').upsert({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status,updated_by:currentUserId},{onConflict:'task_id,user_id,work_date'}).select('*').single()
+    const {data,error:writeError}=await supabase.from('task_daily_updates').upsert({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status,updated_by:currentUserId,is_automatic:false},{onConflict:'task_id,user_id,work_date'}).select('*').single()
     if(writeError)setError(writeError.message);else setUpdates(old=>[...old.filter(u=>!(u.task_id===task.id&&u.work_date===date)),data as DailyWorkUpdate])
     setSaving(null)
   }
