@@ -12,6 +12,7 @@ create table if not exists public.company_attendance (
   editable_until timestamptz not null default (now() + interval '1 hour'),
   frozen_at timestamptz,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (company_id, user_id, attendance_date)
 );
 
@@ -258,7 +259,7 @@ security definer
 set search_path = ''
 as $$
   select c.id, c.name, s.group_id, s.group_name, cm.user_id,
-    coalesce(nullif(cm.full_name,''), nullif(u.raw_user_meta_data->>'full_name',''), split_part(coalesce(u.email,''),'@',1)),
+    coalesce(nullif(cm.full_name,''), nullif(u.raw_user_meta_data->>'full_name',''), split_part(coalesce(u.email,''),'@',1)) as employee_name,
     p_date,
     case when l.user_id is not null then 'on_leave' when a.id is not null then 'working' else 'not_signed_in' end,
     a.work_mode, a.started_at
@@ -274,13 +275,13 @@ as $$
     order by l.start_date limit 1
   ) l on true
   where s.enabled = true
-  order by c.name, employee_name
-$$;
+  order by c.name, 6
+$;
 revoke all on function public.get_company_attendance_notification_rows(date) from public, anon, authenticated;
 grant execute on function public.get_company_attendance_notification_rows(date) to service_role;
 
 -- The notification log has no client write policy. Only the server's service-role client writes it.
 grant select on public.company_attendance_notification_runs to authenticated;
 
--- Add updated_at for the attendance record with an additive nullable column for older previews.
+-- Keep re-runs safe for a database created with an earlier preview revision.
 alter table public.company_attendance add column if not exists updated_at timestamptz not null default now();
