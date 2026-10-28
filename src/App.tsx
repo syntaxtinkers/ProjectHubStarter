@@ -116,7 +116,7 @@ export default function App() {
   const [assignEmployeeId, setAssignEmployeeId] = useState('')
 
   const selectedCompany = companies.find(company => company.id === selectedCompanyId) ?? null
-  const displayCompany = selectedCompany ?? invitedBrand
+  const displayCompany = session?.user ? selectedCompany : invitedBrand
   const isCompanyAdmin = selectedCompany?.role === 'admin'
   const selected = projects.find(p => p.id === selectedId) ?? null
   const selectedStage = stages.find(s => s.id === selectedStageId) ?? null
@@ -661,7 +661,7 @@ export default function App() {
   return <div className={`app-shell ${prefs.mode === 'light' && !displayCompany ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
     <aside className="sidebar">
       <div className="brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={19}/></div>}<span>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
-      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>1&&<select aria-label="Switch company" value={selectedCompanyId ?? ''} onChange={e=>setSelectedCompanyId(e.target.value||null)}>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
+      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>0&&<select aria-label="Switch workspace" value={selectedCompanyId ?? ''} onChange={e=>setSelectedCompanyId(e.target.value||null)}><option value="">Personal workspace</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
       <div className="nav-label">WORKSPACE</div>
       <button className={`nav-item ${tab==='home'?'active':''}`} title="Dashboard" onClick={()=>setTab('home')}><LayoutDashboard size={17}/> Dashboard</button>
       <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><Activity size={17}/> Project overview</button>
@@ -669,7 +669,7 @@ export default function App() {
       <button className={`nav-item ${tab==='calendar'?'active':''}`} onClick={()=>setTab('calendar')}><CalendarDays size={17}/> Calendar</button>
       <button className={`nav-item ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><Users size={17}/> Team & access</button>
       <button className={`nav-item ${tab==='discussion'?'active':''}`} onClick={()=>setTab('discussion')}><MessageCircle size={17}/> Discussion <span className="nav-count">{comments.length}</span></button>
-      {companies.length > 0 && <button className={`nav-item ${tab==='company'?'active':''}`} onClick={()=>setTab('company')}><Building2 size={17}/> Company profile</button>}
+      {selectedCompany && <button className={`nav-item ${tab==='company'?'active':''}`} onClick={()=>setTab('company')}><Building2 size={17}/> Company profile</button>}
       {selectedCompany && <button className={`nav-item ${tab==='attendance'?'active':''}`} onClick={()=>setTab('attendance')}><Clock3 size={17}/>{isCompanyAdmin?'Attendance schedule':'My attendance'}</button>}
       <button className={`nav-item ${tab==='settings'?'active':''}`} onClick={()=>setTab('settings')}><Settings2 size={17}/> Settings</button>
       <div className="project-list-head"><span className="nav-label">YOUR PROJECTS</span><button className="icon-button small" onClick={()=>setShowCreate(true)} title="Create project"><Plus size={16}/></button></div>
@@ -886,7 +886,7 @@ function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCo
   const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64)
   return <section className="panel company-settings-panel">
     <div className="panel-heading"><div><h2>Companies & workspaces</h2><p>Create separate company spaces. Existing projects remain personal until an admin links them.</p></div><Building2 size={20}/></div>
-    {companies.length>0&&<div className="company-switch-row"><label>Active company<select value={selectedCompanyId??''} onChange={e=>onSelect(e.target.value||null)}>{companies.map(company=><option key={company.id} value={company.id}>{company.name} · {company.role==='admin'?'Admin':'Employee'}</option>)}</select></label></div>}
+    {companies.length>0&&<div className="company-switch-row"><label>Active workspace<select value={selectedCompanyId??''} onChange={e=>onSelect(e.target.value||null)}><option value="">Personal workspace</option>{companies.map(company=><option key={company.id} value={company.id}>{company.name} · {company.role==='admin'?'Admin':'Employee'}</option>)}</select></label></div>}
     <form className="form-stack company-create-form" onSubmit={onCreate}>
       <h3>Create a company</h3>
       <div className="form-grid"><label>Company name<input value={companyName} onChange={e=>{setCompanyName(e.target.value);setCompanySlug(slugify(e.target.value))}} placeholder="e.g. Brickmen" maxLength={120} required/></label><label>Company login/invitation URL name<input value={companySlug} onChange={e=>setCompanySlug(slugify(e.target.value))} placeholder="brickmen" pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]" minLength={3} maxLength={64} required/><small className="muted">Used to show the right branding on company invitation and login links.</small></label></div>
