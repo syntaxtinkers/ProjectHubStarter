@@ -48,6 +48,49 @@ You already ran `supabase/schema.sql` for the starter. **Do not rerun the starte
 
 This migration is designed to be re-runnable. It creates `project_tasks`, task RLS policies, and the `add_project_member_by_email` RPC.
 
+### Add company workspaces (preserves existing project data)
+
+After the previous migrations above succeed, apply the file supabase/company_workspaces.sql in the SQL Editor of the same Supabase project. This is additive. It creates the company/member/project-link/theme tables and secure summary functions; it does not auto-link old projects or change task/stage rows.
+
+Then apply supabase/company_attendance.sql. This creates attendance, leave, and WhatsApp-settings tables. Attendance can only be submitted for today's India date, and the work location is editable for one hour after check-in. Employees can see their own entries; company admins can see the company-wide attendance schedule.
+
+Do not run supabase/company_attendance_cron.sql until the WhatsApp Edge Function secrets are configured and a valid Groups API group ID is provided. That file schedules a 10:00 AM Asia/Kolkata job. Never paste secrets into GitHub or frontend code.
+
+### Configure Google sign-in and password reset
+
+1. In Google Cloud Console, create an OAuth client for a Web application.
+2. Add this Supabase callback URL to the Google OAuth client's authorised redirect URIs: https://grpxmljjeoaegkkdaiud.supabase.co/auth/v1/callback
+3. In Supabase Dashboard → Authentication → Sign In / Providers, enable Google and enter the client ID and client secret.
+4. In Supabase Dashboard → Authentication → URL Configuration, add the production app URL, Vercel preview URL(s), and local development URL to the allowed redirect URLs.
+5. Configure SMTP/email delivery in Supabase Auth before relying on password-reset and invitation emails in production.
+
+### Configure company invitation emails
+
+From the repository folder, link the Supabase CLI to the same project and deploy the Edge Function. Configure the Resend sender/API secrets securely:
+
+    supabase login
+    supabase link --project-ref grpxmljjeoaegkkdaiud
+    supabase functions deploy invite-company-member
+    supabase secrets set RESEND_API_KEY=YOUR_RESEND_API_KEY INVITE_FROM_EMAIL=YOUR_VERIFIED_SENDER APP_URL=https://project-hub-starter.vercel.app
+
+The sender must be verified with Resend. The function checks that the caller is a company admin. Company invitations grant company membership only; they do not add the invitee to individual project's task/member permissions.
+
+### Configure the 10 AM attendance WhatsApp message
+
+1. Use an eligible WhatsApp Business Platform setup and Meta WhatsApp Groups API. The destination group ID must be from a group supported by that API; do not assume the ID of a normal existing WhatsApp group will work.
+2. Deploy the scheduled sender and set its secrets server-side:
+
+    supabase functions deploy send-attendance-digest --no-verify-jwt
+    supabase secrets set CRON_SECRET=YOUR_RANDOM_SECRET WHATSAPP_ACCESS_TOKEN=YOUR_META_TOKEN WHATSAPP_PHONE_NUMBER_ID=YOUR_PHONE_NUMBER_ID WHATSAPP_API_VERSION=YOUR_SUPPORTED_GRAPH_API_VERSION
+
+3. In Supabase SQL Editor, edit supabase/company_attendance_cron.sql and replace the publishable/anon-key and cron-secret placeholders. Use the exact same random value as CRON_SECRET. Run the SQL once to store values in Vault and schedule the job.
+4. In the active company's Attendance schedule tab, enter the group's name and API group ID, and enable daily delivery. Leave it disabled until credentials and the group destination have been verified.
+
+Messages are sent individually per employee at approximately 10:00 AM India time: working employees are reported with check-in time and work location, leave entries as "Employee on leave", and missing check-ins as "Employee has not signed in yet". Check Supabase Edge Function logs and company_attendance_notification_runs for delivery status.
+
+The daily sender uses the Meta Graph API version supplied in WHATSAPP_API_VERSION. Enter a currently supported version for the connected WhatsApp Business account. Missing credentials, group ID, or an inactive cron job prevents delivery; the UI does not claim a message was sent just because settings were saved.
+
+
 ## Update your local files safely
 
 1. Back up your current `ProjectHubStarter` folder first.
