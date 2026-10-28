@@ -96,16 +96,5 @@ select cron.schedule(
 select cron.schedule(
   'company-daily-work-default-status',
   '35 18 * * *',
-  $$
-  select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'company_attendance_project_url')
-      || '/rest/v1/rpc/materialize_daily_work_defaults',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'company_attendance_publishable_key'),
-      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'company_attendance_publishable_key')
-    ),
-    body := '{}'::jsonb
-  ) as request_id;
-  $$
+  $ select public.materialize_daily_work_defaults(((now() at time zone 'Asia/Kolkata')::date - 1)); $
 );
