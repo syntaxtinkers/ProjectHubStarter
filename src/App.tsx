@@ -1025,7 +1025,7 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
     async function load(){
       if(!supabase||!weekTaskIds.length){setUpdates([]);setLoaded(true);return}
       setLoaded(false);setError('')
-      const {data,error:readError}=await supabase.from('task_daily_updates').select('*').eq('user_id',currentUserId).eq('week_start',weekStart).in('task_id',weekTaskIds)
+      const {data,error:readError}=await supabase.from('task_daily_updates').select('*').eq('week_start',weekStart).in('task_id',weekTaskIds)
       if(!alive)return
       if(readError){setError(readError.message);setUpdates([])}else setUpdates((data??[]) as DailyWorkUpdate[])
       setLoaded(true)
@@ -1037,7 +1037,7 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
     let cancelled=false
     async function markPastDays(){
       const missing:{task_id:string;user_id:string;work_date:string;week_start:string;status:DailyWorkStatus;updated_by:string}[]=[]
-      for(const task of weekTasks)for(let offset=0;offset<6;offset++){
+      for(const task of weekTasks.filter(t=>t.status!=='done'))for(let offset=0;offset<6;offset++){
         const date=shiftIsoDate(weekStart,offset)
         if(date>=today||date<scheduledDate(task))continue
         if(!updates.some(u=>u.task_id===task.id&&u.work_date===date))missing.push({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status:'not_started',updated_by:currentUserId})
