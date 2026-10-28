@@ -141,7 +141,7 @@ The company profile's weekly completion table is admin-only. Its percentage is c
 
 #### WhatsApp daily digest and 7 PM reminder
 
-In Company Profile → Employees & admins, an admin must add each recipient's WhatsApp number in international E.164 format, e.g. +919876543210. Phone numbers are stored in a separate admin-only table and are not exposed to regular employees.
+In Company Profile → Employees & admins, an admin must add each recipient's WhatsApp number in international E.164 format, e.g. +919876543210. Phone numbers are stored in a separate admin-only table and are not exposed to regular employees. Mark “Consent recorded” only after the employee has opted in; the sender excludes numbers without that consent flag.
 
 Deploy the function:
 
