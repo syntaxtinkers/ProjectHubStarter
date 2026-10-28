@@ -145,9 +145,11 @@ create policy "Company admins can view invitations" on public.company_invitation
   );
 
 grant select on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to authenticated;
-grant update on public.companies, public.company_members to authenticated;
+revoke update on public.companies, public.company_members, public.company_project_assignments from authenticated;
+grant update (name, slug, logo_url, theme, updated_at) on public.companies to authenticated;
+grant update (role, full_name, job_title) on public.company_members to authenticated;
 grant delete on public.company_members to authenticated;
-grant select, insert, delete on public.company_project_assignments to authenticated;
+grant select, insert, update, delete on public.company_project_assignments to authenticated;
 
 create or replace function public.create_company(p_name text, p_slug text, p_logo_url text default null)
 returns uuid
@@ -247,7 +249,7 @@ begin
   if not exists (select 1 from public.company_members m where m.company_id = p_company_id and m.user_id = auth.uid() and m.role = 'admin') then
     raise exception 'Only company admins can link projects';
   end if;
-  if public.current_project_role(p_project_id) not in ('owner','editor') then
+  if coalesce(public.current_project_role(p_project_id)::text, '') not in ('owner','editor') then
     raise exception 'You need Owner or Editor access to that existing project before linking it to a company';
   end if;
   insert into public.company_projects(company_id, project_id, added_by)
