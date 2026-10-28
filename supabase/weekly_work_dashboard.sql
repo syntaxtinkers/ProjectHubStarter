@@ -59,9 +59,7 @@ with check (
   and exists (
     select 1 from public.project_tasks t
     where t.id = task_daily_updates.task_id
-      and (t.assigned_to_user_id = (select auth.uid())
-        or t.assigned_by_user_id = (select auth.uid())
-        or t.created_by = (select auth.uid()))
+      and t.assigned_to_user_id = (select auth.uid())
   )
 );
 drop policy if exists "Users update their own daily updates" on public.task_daily_updates;
@@ -70,9 +68,7 @@ on public.task_daily_updates for update to authenticated
 using (user_id = (select auth.uid()) and exists (
   select 1 from public.project_tasks t
   where t.id = task_daily_updates.task_id
-    and (t.assigned_to_user_id = (select auth.uid())
-      or t.assigned_by_user_id = (select auth.uid())
-      or t.created_by = (select auth.uid()))
+    and t.assigned_to_user_id = (select auth.uid())
 ))
 with check (
   user_id = (select auth.uid())
@@ -80,9 +76,7 @@ with check (
   and exists (
     select 1 from public.project_tasks t
     where t.id = task_daily_updates.task_id
-      and (t.assigned_to_user_id = (select auth.uid())
-        or t.assigned_by_user_id = (select auth.uid())
-        or t.created_by = (select auth.uid()))
+      and t.assigned_to_user_id = (select auth.uid())
   )
 );
 
