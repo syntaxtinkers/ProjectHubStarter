@@ -58,6 +58,8 @@ create table if not exists public.company_invitations (
 
 create index if not exists company_members_user_idx on public.company_members(user_id, company_id);
 create index if not exists company_projects_company_idx on public.company_projects(company_id, added_at);
+-- A project may be linked to only one company, preventing cross-company stage/deadline exposure.
+create unique index if not exists company_projects_project_unique on public.company_projects(project_id);
 create index if not exists company_project_assignments_project_idx on public.company_project_assignments(company_id, project_id);
 create index if not exists company_invitations_email_idx on public.company_invitations(lower(email), accepted_at);
 
@@ -252,6 +254,9 @@ begin
   end if;
   if coalesce(public.current_project_role(p_project_id)::text, '') not in ('owner','editor') then
     raise exception 'You need Owner or Editor access to that existing project before linking it to a company';
+  end if;
+  if exists (select 1 from public.company_projects cp where cp.project_id = p_project_id and cp.company_id <> p_company_id) then
+    raise exception 'This project is already linked to another company. Unlink it there first to avoid sharing deadlines across companies';
   end if;
   insert into public.company_projects(company_id, project_id, added_by)
     values (p_company_id, p_project_id, auth.uid())
