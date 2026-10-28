@@ -145,6 +145,7 @@ create policy "Company admins can view invitations" on public.company_invitation
   );
 
 grant select on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to authenticated;
+grant all privileges on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to service_role;
 revoke update on public.companies, public.company_members, public.company_project_assignments from authenticated;
 grant update (name, slug, logo_url, theme, updated_at) on public.companies to authenticated;
 grant update (role, full_name, job_title) on public.company_members to authenticated;
