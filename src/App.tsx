@@ -941,7 +941,7 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  const [weeklyMetrics,setWeeklyMetrics]=useState<CompanyWeeklyMetric[]>([])
  const [weeklyMetricsError,setWeeklyMetricsError]=useState('')
  useEffect(()=>{setName(company.name);setTheme({...defaultCompanyTheme,...(company.theme??{})})},[company.id,company.name,JSON.stringify(company.theme)])
- useEffect(()=>{let alive=true;async function load(){if(!isAdmin||!supabase){setWeeklyMetrics([]);return}const week=localIsoDate(mondayOf(new Date()));const {data,error}=await supabase.rpc('company_weekly_completion',{p_company_id:company.id,p_week_start:week});if(!alive)return;if(error){setWeeklyMetricsError(error.message);setWeeklyMetrics([])}else{setWeeklyMetricsError('');setWeeklyMetrics((data??[]) as CompanyWeeklyMetric[])}}void load();return()=>{alive=false}},[company.id,isAdmin])
+ useEffect(()=>{let alive=true;async function load(){if(!isAdmin||!supabase){setWeeklyMetrics([]);return}const week=localIsoDate(mondayOf(new Date()));const {data,error}=await supabase.rpc('company_weekly_completion',{p_company_id:company.id,p_week_start:week});if(!alive)return;if(error){setWeeklyMetricsError(error.message);setWeeklyMetrics([])}else{setWeeklyMetricsError('');setWeeklyMetrics((data??[]) as CompanyWeeklyMetric[])}}void load();const timer=window.setInterval(()=>void load(),30000);return()=>{alive=false;window.clearInterval(timer)}},[company.id,isAdmin])
  const projectList=Array.from(new Map(rows.map(row=>[row.project_id,{id:row.project_id,name:row.project_name,description:row.project_description}])).values())
  const linkedIds=new Set(projectList.map(p=>p.id))
  const linkable=availableProjects.filter(p=>!linkedIds.has(p.id))
