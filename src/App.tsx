@@ -53,7 +53,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot' | 'reset' | 'google'>('signin')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot' | 'reset' | 'google'>(() => new URLSearchParams(window.location.search).get('reset') === '1' ? 'reset' : 'signin')
   const [authMessage, setAuthMessage] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -659,7 +659,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><CircleHelp size={17}/></div><b>ProjectHub workspace</b><p>Plan work, coordinate people, and keep updates together.</p></div><div className="profile"><div className="profile-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="profile-meta"><b>{profileName || session.user.email}</b><small>Signed in</small></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={16}/></button></div></div>
     </aside>
     <main className="main-panel">
-      <header className="topbar"><div className="breadcrumbs"><span>{displayCompany?.name ?? 'CKPC'} Project Hub</span><span className="crumb-slash">/</span><b>{tab==='home'?'Dashboard':tab==='company'?'Company profile':tab==='settings'?'Settings':selected?.name ?? 'Dashboard'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
+      <header className="topbar"><div className="breadcrumbs"><span>{displayCompany?.name ?? 'CKPC'} Project Hub</span><span className="crumb-slash">/</span><b>{tab==='home'?'Dashboard':tab==='company'?'Company profile':tab==='attendance'?(isCompanyAdmin?'Attendance schedule':'My attendance'):tab==='settings'?'Settings':selected?.name ?? 'Dashboard'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
       <div className="page-content">
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
         {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
@@ -749,7 +749,12 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
    ])
    if(!alive)return
    if(attendanceResult.error)setMessage('Could not load your attendance: '+attendanceResult.error.message)
-   else setMyAttendance((attendanceResult.data??[]) as AttendanceRecord[])
+   else {
+    const loadedAttendance=(attendanceResult.data??[]) as AttendanceRecord[]
+    setMyAttendance(loadedAttendance)
+    const todayEntry=loadedAttendance.find(record=>record.attendance_date===indiaDate())
+    setWorkMode(todayEntry?.work_mode??'office')
+   }
    if(leaveResult.error)setMessage('Could not load your leave history: '+leaveResult.error.message)
    else setMyLeaves((leaveResult.data??[]) as CompanyLeaveRecord[])
    if(isAdmin){
