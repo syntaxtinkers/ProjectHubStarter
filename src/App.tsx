@@ -898,7 +898,7 @@ function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCo
   </section>
 }
 
-function CompanyProfile({company,isAdmin,members,rows,assignments,availableProjects,busy,notice,onSave,onLogoUpload,onInvite,onLinkProject,onUnlinkProject,onAssign,onMemberUpdate,onRemoveMember,linkProjectId,setLinkProjectId,inviteEmail,setInviteEmail,inviteRole,setInviteRole,assignProjectId,setAssignProjectId,assignEmployeeId,setAssignEmployeeId}:{
+function CompanyProfile({company,isAdmin,members,rows,assignments,availableProjects,busy,onSave,onLogoUpload,onInvite,onLinkProject,onUnlinkProject,onAssign,onMemberUpdate,onRemoveMember,linkProjectId,setLinkProjectId,inviteEmail,setInviteEmail,inviteRole,setInviteRole,assignProjectId,setAssignProjectId,assignEmployeeId,setAssignEmployeeId}:{
  company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;
  onSave:(patch:Partial<Pick<Company,'name'|'logo_url'|'theme'>>)=>Promise<void>;onLogoUpload:(file:File)=>Promise<void>;
  onInvite:(e:FormEvent)=>void;onLinkProject:()=>Promise<void>;onUnlinkProject:(id:string)=>Promise<void>;onAssign:()=>Promise<void>;
