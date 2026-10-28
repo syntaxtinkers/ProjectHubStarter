@@ -4,7 +4,8 @@ import {
   Activity, ArrowLeft, CalendarDays, Check, ChevronDown, CircleHelp, Command, FolderKanban,
   LayoutDashboard, LogOut, MessageCircle, Plus, Search, Settings2, ShieldCheck, Users, X,
   LockKeyhole, Eye, Pencil, LoaderCircle, ListTodo, GanttChartSquare, Palette, Trash2,
-  CircleCheck, Clock3, AlertCircle, RefreshCw, UserPlus, SlidersHorizontal, Filter, FileDown, ChevronUp
+  CircleCheck, Clock3, AlertCircle, RefreshCw, UserPlus, SlidersHorizontal, Filter, FileDown, ChevronUp,
+  Building2, Mail, Upload, Save, Link2, Unlink, UserCheck, CalendarRange, ArrowUpRight
 } from 'lucide-react'
 import { isConfigured, supabase } from './lib/supabase'
 import CalendarView from './CalendarView'
@@ -19,13 +20,32 @@ type Stage = { id: string; project_id: string; name: string; description: string
 type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; sort_order?: number; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
 type TaskCustomField = { id: string; project_id: string; name: string; sort_order: number; created_by: string; created_at: string }
 type Member = { user_id: string; role: Role; joined_at: string; email?: string }
-type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'settings'
+type CompanyRole = 'admin' | 'employee'
+type CompanyTheme = { preset: string; bg: string; panel: string; panel2: string; text: string; muted: string; border: string; accent: string; accent2: string }
+type Company = { id: string; name: string; slug: string; logo_url: string | null; theme: CompanyTheme; created_by: string; role?: CompanyRole }
+type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; joined_at: string }
+type CompanyProjectRow = { project_id: string; project_name: string; project_description: string | null; stage_id: string | null; stage_name: string | null; stage_start: string | null; stage_end: string | null; stage_order: number; assigned_employees: string[] }
+type CompanyAssignment = { company_id: string; project_id: string; user_id: string; assigned_by: string; assigned_at: string }
+type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'work_from_home'; started_at: string; editable_until: string; frozen_at: string | null }
+type CompanyLeaveRecord = { id: string; company_id: string; user_id: string; start_date: string; end_date: string; reason: string | null; status: 'active' | 'cancelled'; created_at: string; updated_at: string }
+type AttendanceScheduleRow = { user_id: string; employee_name: string; employee_email: string; attendance_date: string; attendance_status: 'working' | 'on_leave' | 'not_signed_in'; work_mode: string | null; started_at: string | null; editable_until: string | null; is_frozen: boolean; leave_start: string | null; leave_end: string | null; leave_reason: string | null }
+type CompanyWhatsAppSettings = { company_id: string; group_name: string; group_id: string; enabled: boolean; timezone: string; updated_by: string | null; updated_at: string }
+type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'company' | 'attendance' | 'settings'
 
 const roleLabels: Record<Role, string> = { owner: 'Owner / Main editor', editor: 'Editor', commenter: 'Commenter', viewer: 'Viewer' }
 const colors = ['violet', 'blue', 'mint', 'orange']
 const canEdit = (r?: Role) => r === 'owner' || r === 'editor'
 const canComment = (r?: Role) => r === 'owner' || r === 'editor' || r === 'commenter'
 const initialPrefs = { bg: '#0b1020', panel: '#11182b', text: '#e9edf7', accent: '#9a8cff', fontSize: '14', mode: 'dark' }
+const themePresets: Record<string, CompanyTheme> = {
+  'blue-night': { preset: 'blue-night', bg: '#0b1020', panel: '#11182b', panel2: '#151e33', text: '#e9edf7', muted: '#8792ad', border: '#252f46', accent: '#9a8cff', accent2: '#7766f7' },
+  'orange-light': { preset: 'orange-light', bg: '#f4f6f9', panel: '#ffffff', panel2: '#edf1f6', text: '#202b3d', muted: '#677489', border: '#d8dfeb', accent: '#e77727', accent2: '#bd5515' },
+  'orange-noir': { preset: 'orange-noir', bg: '#111315', panel: '#1a1d20', panel2: '#24282c', text: '#f3f2ef', muted: '#a3a5a7', border: '#373c40', accent: '#ff8a30', accent2: '#d96617' },
+  'crimson-graphite': { preset: 'crimson-graphite', bg: '#111315', panel: '#1b1d21', panel2: '#25282d', text: '#f3f1f2', muted: '#aaa4ac', border: '#3a353d', accent: '#e34b5f', accent2: '#b82d43' },
+  'emerald-slate': { preset: 'emerald-slate', bg: '#0c1717', panel: '#132323', panel2: '#1b3030', text: '#e8f4f0', muted: '#90aaa1', border: '#29423d', accent: '#3dc49b', accent2: '#208d75' },
+  'violet-neon': { preset: 'violet-neon', bg: '#100d1e', panel: '#1a1630', panel2: '#282044', text: '#f0edff', muted: '#a19abf', border: '#3a315a', accent: '#c084fc', accent2: '#8b5cf6' }
+}
+const defaultCompanyTheme = themePresets['blue-night']
 
 export default function App() {
   const [session, setSession] = useState<any>(null)
@@ -33,7 +53,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot' | 'reset' | 'google'>(() => new URLSearchParams(window.location.search).get('reset') === '1' ? 'reset' : 'signin')
   const [authMessage, setAuthMessage] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -79,14 +99,42 @@ export default function App() {
   const [taskFilter, setTaskFilter] = useState<'all' | TaskStatus>('all')
   const [prefs, setPrefs] = useState(initialPrefs)
   const [profileName, setProfileName] = useState('')
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
+  const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([])
+  const [companyRows, setCompanyRows] = useState<CompanyProjectRow[]>([])
+  const [companyAssignments, setCompanyAssignments] = useState<CompanyAssignment[]>([])
+  const [companySlug, setCompanySlug] = useState(() => new URLSearchParams(window.location.search).get('company') ?? '')
+  const [invitedBrand, setInvitedBrand] = useState<Company | null>(null)
+  const [companyCreateName, setCompanyCreateName] = useState('')
+  const [companyCreateSlug, setCompanyCreateSlug] = useState('')
+  const [companyCreateLogo, setCompanyCreateLogo] = useState<File | null>(null)
+  const [companyInviteEmail, setCompanyInviteEmail] = useState('')
+  const [companyInviteRole, setCompanyInviteRole] = useState<CompanyRole>('employee')
+  const [linkProjectId, setLinkProjectId] = useState('')
+  const [assignProjectId, setAssignProjectId] = useState('')
+  const [assignEmployeeId, setAssignEmployeeId] = useState('')
 
+  const selectedCompany = companies.find(company => company.id === selectedCompanyId) ?? null
+  const displayCompany = session?.user ? selectedCompany : invitedBrand
+  const isCompanyAdmin = selectedCompany?.role === 'admin'
   const selected = projects.find(p => p.id === selectedId) ?? null
   const selectedStage = stages.find(s => s.id === selectedStageId) ?? null
   const selectedStageTasks = tasks.filter(t => t.stage_id === selectedStageId)
   const filteredProjects = useMemo(() => projects.filter(p =>
     `${p.name} ${p.description ?? ''}`.toLowerCase().includes(search.toLowerCase())
   ), [projects, search])
-  const themeStyle = { '--bg': prefs.bg, '--panel': prefs.panel, '--text': prefs.text, '--purple': prefs.accent, fontSize: `${prefs.fontSize}px` } as CSSProperties
+  const activeTheme = (displayCompany?.theme ? { ...defaultCompanyTheme, ...displayCompany.theme } : {
+    ...defaultCompanyTheme, bg: prefs.bg, panel: prefs.panel, panel2: prefs.panel, text: prefs.text, accent: prefs.accent,
+    accent2: prefs.accent, muted: '#8792ad', border: '#252f46'
+  }) as CompanyTheme
+  const themeStyle = {
+    '--bg': activeTheme.bg, '--panel': activeTheme.panel, '--panel2': activeTheme.panel2, '--line': activeTheme.border,
+    '--muted': activeTheme.muted, '--text': activeTheme.text, '--purple': activeTheme.accent, '--purple2': activeTheme.accent2,
+    '--company-bg': activeTheme.bg, '--company-panel': activeTheme.panel, '--company-panel2': activeTheme.panel2,
+    '--company-text': activeTheme.text, '--company-muted': activeTheme.muted, '--company-border': activeTheme.border,
+    '--company-accent': activeTheme.accent, '--company-accent2': activeTheme.accent2, fontSize: `${prefs.fontSize}px`
+  } as CSSProperties
 
   useEffect(() => {
     try {
@@ -103,18 +151,192 @@ export default function App() {
   useEffect(() => {
     if (!supabase) { setLoading(false); return }
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false) })
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
+    const { data: listener } = supabase.auth.onAuthStateChange((event, next) => { setSession(next); if (event === 'PASSWORD_RECOVERY') setAuthMode('reset') })
     return () => listener.subscription.unsubscribe()
   }, [])
   useEffect(() => {
-    if (session?.user) void loadProjects()
-    else { setProjects([]); setStages([]); setTasks([]); setTaskFields([]); setSelectedStageId(null); setSelectedId(null) }
+    if (session?.user) { void loadProjects(); void loadCompanies() }
+    else {
+      setProjects([]); setStages([]); setTasks([]); setTaskFields([]); setSelectedStageId(null); setSelectedId(null)
+      setCompanies([]); setCompanyMembers([]); setCompanyRows([]); setCompanyAssignments([]); setSelectedCompanyId(null)
+    }
   }, [session?.user?.id])
+  useEffect(() => {
+    if (selectedCompany?.slug) setCompanySlug(selectedCompany.slug)
+  }, [selectedCompany?.id])
+  useEffect(() => {
+    if (!session?.user && !new URLSearchParams(window.location.search).get('company')) {
+      setCompanySlug('')
+      setInvitedBrand(null)
+    }
+  }, [session?.user?.id])
+  useEffect(() => {
+    if (!supabase || !companySlug) { setInvitedBrand(null); return }
+    let alive = true
+    supabase.rpc('get_company_branding', { p_slug: companySlug }).then(({ data, error }) => {
+      if (!alive) return
+      if (error) { setAuthMessage(error.message); return }
+      const row = Array.isArray(data) ? data[0] : data
+      if (row) setInvitedBrand({ ...row, theme: { ...defaultCompanyTheme, ...(row.theme ?? {}) } } as Company)
+      else setInvitedBrand(null)
+    })
+    return () => { alive = false }
+  }, [companySlug])
+  useEffect(() => {
+    if (selectedCompanyId && session?.user) void loadCompanyData(selectedCompanyId)
+    else { setCompanyMembers([]); setCompanyRows([]); setCompanyAssignments([]) }
+  }, [selectedCompanyId, session?.user?.id])
   useEffect(() => {
     if (selectedId && session?.user) void loadProjectData(selectedId)
     else { setComments([]); setStages([]); setTasks([]); setMembers([]); setSelectedStageId(null); setStageComments([]); setTaskComments([]) }
   }, [selectedId, session?.user?.id])
 
+  async function loadCompanies() {
+    if (!supabase || !session?.user) return
+    const { error: acceptError } = await supabase.rpc('accept_company_invitations')
+    if (acceptError && !acceptError.message.toLowerCase().includes('does not exist')) setNotice('Company invitations: ' + acceptError.message)
+    const { data: memberships, error: membershipError } = await supabase.from('company_members').select('company_id,role').eq('user_id', session.user.id)
+    if (membershipError) { setNotice('Could not load company memberships: ' + membershipError.message); return }
+    const ids = (memberships ?? []).map((m: any) => m.company_id as string)
+    if (!ids.length) { setCompanies([]); setSelectedCompanyId(null); return }
+    const { data, error } = await supabase.from('companies').select('id,name,slug,logo_url,theme,created_by,created_at,updated_at').in('id', ids).order('created_at', { ascending: true })
+    if (error) { setNotice('Could not load companies: ' + error.message); return }
+    const rows = (data ?? []).map((company: any) => ({
+      ...company, role: (memberships ?? []).find((m: any) => m.company_id === company.id)?.role,
+      theme: { ...defaultCompanyTheme, ...(company.theme ?? {}) }
+    })) as Company[]
+    setCompanies(rows)
+    setSelectedCompanyId(current => {
+      if (current && rows.some(company => company.id === current)) return current
+      const fromInvite = rows.find(company => company.slug === companySlug)
+      let storedWorkspace = ''
+      try { storedWorkspace = localStorage.getItem('projecthub-selected-workspace-id') ?? '' } catch { /* ignore storage */ }
+      const fromStored = rows.find(company => company.id === storedWorkspace)
+      if (fromInvite) return fromInvite.id
+      if (storedWorkspace === 'personal') return null
+      return fromStored?.id ?? rows[0]?.id ?? null
+    })
+  }
+  async function loadCompanyData(companyId: string) {
+    if (!supabase || !session?.user) return
+    const [membersResult, projectsResult, assignmentResult] = await Promise.all([
+      supabase.rpc('get_company_members', { p_company_id: companyId }),
+      supabase.rpc('get_company_profile_projects', { p_company_id: companyId }),
+      supabase.from('company_project_assignments').select('*').eq('company_id', companyId)
+    ])
+    if (membersResult.error) setNotice('Could not load employee details: ' + membersResult.error.message)
+    else setCompanyMembers((membersResult.data ?? []) as CompanyMember[])
+    if (projectsResult.error) setNotice('Could not load company deadlines: ' + projectsResult.error.message)
+    else setCompanyRows((projectsResult.data ?? []) as CompanyProjectRow[])
+    if (assignmentResult.error) setNotice('Could not load assignments: ' + assignmentResult.error.message)
+    else setCompanyAssignments((assignmentResult.data ?? []) as CompanyAssignment[])
+  }
+  async function createCompany(e: FormEvent) {
+    e.preventDefault()
+    if (!supabase || !session?.user || !companyCreateName.trim() || !companyCreateSlug.trim()) return
+    if (companyCreateLogo && (!companyCreateLogo.type.startsWith('image/') || companyCreateLogo.size > 3 * 1024 * 1024)) {
+      setNotice('Choose an image file no larger than 3 MB for the company logo.')
+      return
+    }
+    setBusy(true); setNotice('')
+    const { data, error } = await supabase.rpc('create_company', { p_name: companyCreateName.trim(), p_slug: companyCreateSlug.trim().toLowerCase(), p_logo_url: null })
+    if (error) setNotice('Could not create company: ' + error.message)
+    else {
+      let logoWarning = ''
+      const newCompanyId = data as string
+      if (companyCreateLogo && newCompanyId) {
+        const safeName = companyCreateLogo.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+        const path = `${newCompanyId}/${Date.now()}-${safeName}`
+        const { error: uploadError } = await supabase.storage.from('company-logos').upload(path, companyCreateLogo, { upsert: true, contentType: companyCreateLogo.type })
+        if (uploadError) logoWarning = ' Company was created, but logo upload failed: ' + uploadError.message
+        else {
+          const { data: publicLogo } = supabase.storage.from('company-logos').getPublicUrl(path)
+          const { error: logoError } = await supabase.from('companies').update({ logo_url: publicLogo.publicUrl, updated_at: new Date().toISOString() }).eq('id', newCompanyId)
+          if (logoError) logoWarning = ' Company was created, but logo saving failed: ' + logoError.message
+        }
+      }
+      setCompanyCreateName(''); setCompanyCreateSlug(''); setCompanyCreateLogo(null)
+      await loadCompanies()
+      if (data) {
+        setSelectedCompanyId(data as string)
+        try { localStorage.setItem('projecthub-selected-workspace-id', data as string) } catch { /* ignore storage */ }
+      }
+      setTab('company')
+      setNotice('Company created. You are its first admin. Your existing projects remain personal until you link them.' + logoWarning)
+    }
+    setBusy(false)
+  }
+  async function saveCompanyProfile(patch: Partial<Pick<Company, 'name' | 'logo_url' | 'theme'>>) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin) return
+    setBusy(true); setNotice('')
+    const { error } = await supabase.from('companies').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', selectedCompany.id)
+    if (error) setNotice('Could not update company profile: ' + error.message)
+    else { await loadCompanies(); await loadCompanyData(selectedCompany.id); setNotice('Company profile saved for all company members.') }
+    setBusy(false)
+  }
+  async function uploadCompanyLogo(file: File) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin) return
+    if (!file.type.startsWith('image/')) { setNotice('Choose an image file for the company logo.'); return }
+    if (file.size > 3 * 1024 * 1024) { setNotice('Logo must be 3 MB or smaller.'); return }
+    setBusy(true)
+    const path = `${selectedCompany.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`
+    const { error } = await supabase.storage.from('company-logos').upload(path, file, { upsert: true, contentType: file.type })
+    if (error) { setNotice('Could not upload logo: ' + error.message); setBusy(false); return }
+    const { data } = supabase.storage.from('company-logos').getPublicUrl(path)
+    await saveCompanyProfile({ logo_url: data.publicUrl })
+    setBusy(false)
+  }
+  async function inviteCompanyMember(e: FormEvent) {
+    e.preventDefault()
+    if (!supabase || !selectedCompany || !isCompanyAdmin || !companyInviteEmail.trim()) return
+    setBusy(true); setNotice('')
+    const { data, error } = await supabase.functions.invoke('invite-company-member', {
+      body: { company_id: selectedCompany.id, email: companyInviteEmail.trim().toLowerCase(), role: companyInviteRole, redirect_to: `${window.location.origin}${window.location.pathname}?company=${encodeURIComponent(selectedCompany.slug)}` }
+    })
+    if (error) setNotice('Could not send company invitation: ' + error.message + '. The invite function and email provider must be deployed/configured.')
+    else if (data?.error) setNotice('Could not send company invitation: ' + data.error)
+    else { setCompanyInviteEmail(''); await loadCompanyData(selectedCompany.id); setNotice(data?.message ?? 'Company invitation email sent.') }
+    setBusy(false)
+  }
+  async function linkProjectToCompany() {
+    if (!supabase || !selectedCompany || !isCompanyAdmin || !linkProjectId) return
+    setBusy(true); setNotice('')
+    const { error } = await supabase.rpc('link_company_project', { p_company_id: selectedCompany.id, p_project_id: linkProjectId })
+    if (error) setNotice('Could not link project: ' + error.message)
+    else { setLinkProjectId(''); await loadCompanyData(selectedCompany.id); setNotice('Project linked to the company. Its saved data has not been moved or changed.') }
+    setBusy(false)
+  }
+  async function unlinkProjectFromCompany(projectId: string) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin) return
+    const name = companyRows.find(row => row.project_id === projectId)?.project_name ?? 'this project'
+    if (!confirm(`Remove ${name} from the company profile? This only removes the company link; the personal project and its data remain intact.`)) return
+    const { error } = await supabase.rpc('unlink_company_project', { p_company_id: selectedCompany.id, p_project_id: projectId })
+    if (error) setNotice('Could not unlink project: ' + error.message)
+    else { await loadCompanyData(selectedCompany.id); setNotice('Project unlinked from this company; project data remains unchanged.') }
+  }
+  async function assignCompanyProject() {
+    if (!supabase || !selectedCompany || !isCompanyAdmin || !assignProjectId || !assignEmployeeId) return
+    setBusy(true); setNotice('')
+    const { error } = await supabase.from('company_project_assignments').upsert({
+      company_id: selectedCompany.id, project_id: assignProjectId, user_id: assignEmployeeId, assigned_by: session.user.id
+    }, { onConflict: 'company_id,project_id,user_id' })
+    if (error) setNotice('Could not assign employee: ' + error.message)
+    else { await loadCompanyData(selectedCompany.id); setNotice('Employee assigned to the project.') }
+    setBusy(false)
+  }
+  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title'>>) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin || member.user_id === session.user.id) return
+    const { error } = await supabase.from('company_members').update(patch).eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
+    if (error) setNotice('Could not update employee: ' + error.message)
+    else { await loadCompanyData(selectedCompany.id); setNotice('Employee details updated.') }
+  }
+  async function removeCompanyMember(member: CompanyMember) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin || member.user_id === session.user.id) return
+    if (!confirm(`Remove ${member.full_name} from ${selectedCompany.name}? Project records and deadlines will remain intact.`)) return
+    const { error } = await supabase.from('company_members').delete().eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
+    if (error) setNotice('Could not remove employee: ' + error.message)
+    else { await loadCompanyData(selectedCompany.id); setNotice('Company membership removed. Project data was not deleted.') }
+  }
   async function loadProjects() {
     if (!supabase || !session?.user) return
     const { data, error } = await supabase.from('project_members')
@@ -158,10 +380,28 @@ export default function App() {
   async function handleAuth(e: FormEvent) {
     e.preventDefault(); if (!supabase) return
     setBusy(true); setAuthMessage('')
-    const result = authMode === 'signin' ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password })
-    if (result.error) setAuthMessage(result.error.message)
-    else if (authMode === 'signup' && !result.data.session) setAuthMessage('Account created. Check your email to confirm it, then sign in.')
+    if (authMode === 'forgot') {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}${window.location.pathname}${companySlug ? `?company=${encodeURIComponent(companySlug)}&reset=1` : '?reset=1'}` })
+      setAuthMessage(error ? error.message : 'If an account exists for this email, a password-reset link has been sent. Check your email inbox.')
+    } else if (authMode === 'reset') {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) setAuthMessage(error.message)
+      else { await supabase.auth.signOut(); setPassword(''); setAuthMode('signin'); setAuthMessage('Password updated. You can now sign in with your new password.') }
+    } else if (authMode === 'google') {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href } })
+      if (error) setAuthMessage(error.message)
+    } else {
+      const result = authMode === 'signin' ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.href } })
+      if (result.error) setAuthMessage(result.error.message)
+      else if (authMode === 'signup' && !result.data.session) setAuthMessage('Account created. Check your email to confirm it, then sign in.')
+    }
     setBusy(false)
+  }
+  async function startGoogleSignIn() {
+    if (!supabase) return
+    setBusy(true); setAuthMessage('')
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href } })
+    if (error) { setAuthMessage(error.message); setBusy(false) }
   }
   async function createProject(e: FormEvent) {
     e.preventDefault(); if (!supabase || !session?.user || !projectName.trim()) return
@@ -413,16 +653,23 @@ export default function App() {
   if (!isConfigured || !supabase) return <SetupScreen />
   if (loading) return <div className="loading-screen"><LoaderCircle className="spin" size={28}/><span>Opening your workspace…</span></div>
   if (!session) return (
-    <main className="auth-shell">
-      <div className="auth-decoration"><div className="glow glow-a"/><div className="glow glow-b"/><div className="auth-brand"><div className="brand-mark"><Command size={21}/></div><span>CKPC <span className="accent">project hub</span></span></div><div className="auth-pitch"><span className="eyebrow">ONE SPACE. EVERY PROJECT.</span><h1>Good work happens<br/><span>together.</span></h1><p>A calmer workspace for your team's projects, conversations, and ideas.</p><div className="feature-pills"><span><ShieldCheck size={14}/> Permission-aware</span><span><Users size={14}/> Made for teams</span></div></div><div className="auth-foot">YOUR TEAM'S WORKSPACE, REIMAGINED</div></div>
-      <section className="auth-panel"><div className="mobile-brand"><div className="brand-mark"><Command size={20}/></div><b>CKPC <span className="accent">project hub</span></b></div><div className="auth-card"><span className="eyebrow">{authMode === 'signin' ? 'WELCOME BACK' : 'GET STARTED'}</span><h2>{authMode === 'signin' ? 'Sign in to your workspace' : 'Create your account'}</h2><p className="muted">{authMode === 'signin' ? 'Pick up where your team left off.' : 'Set up your account to create your first project.'}</p><form onSubmit={handleAuth} className="form-stack"><label>Email address<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required/></label><label>Password<input type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters" minLength={6} required/></label><button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'} <span>→</span></button></form>{authMessage && <p className="notice">{authMessage}</p>}<p className="switch-auth">{authMode === 'signin' ? 'New to ProjectHub?' : 'Already have an account?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signin' ? 'signup' : 'signin');setAuthMessage('')}}>{authMode === 'signin' ? 'Create an account' : 'Sign in'}</button></p><div className="secure-note"><LockKeyhole size={14}/> Your projects are private by default.</div></div></section>
+    <main className="auth-shell" style={themeStyle}>
+      <div className="auth-decoration"><div className="glow glow-a"/><div className="glow glow-b"/><div className="auth-brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={21}/></div>}<span>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></span></div><div className="auth-pitch"><span className="eyebrow">ONE SPACE. EVERY PROJECT.</span><h1>Good work happens<br/><span>together.</span></h1><p>{displayCompany ? `The shared workspace for ${displayCompany.name}'s projects, people, and deadlines.` : "A calmer workspace for your team's projects, conversations, and ideas."}</p><div className="feature-pills"><span><ShieldCheck size={14}/> Permission-aware</span><span><Users size={14}/> Made for teams</span></div></div><div className="auth-foot">YOUR TEAM'S WORKSPACE, REIMAGINED</div></div>
+      <section className="auth-panel"><div className="mobile-brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={20}/></div>}<b>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></b></div><div className="auth-card"><span className="eyebrow">{authMode === 'signin' ? 'WELCOME BACK' : authMode === 'signup' ? 'GET STARTED' : authMode === 'forgot' ? 'ACCOUNT RECOVERY' : authMode === 'reset' ? 'CHOOSE A NEW PASSWORD' : 'SECURE SIGN IN'}</span><h2>{authMode === 'signin' ? 'Sign in to your workspace' : authMode === 'signup' ? 'Create your account' : authMode === 'forgot' ? 'Reset your password' : authMode === 'reset' ? 'Set a new password' : 'Continue with Google'}</h2><p className="muted">{authMode === 'signin' ? 'Pick up where your team left off.' : authMode === 'signup' ? 'Set up your account to create your first project.' : authMode === 'forgot' ? 'We will email you a secure password-reset link.' : authMode === 'reset' ? 'Choose a strong new password for your account.' : 'Use your Google account to sign in.'}</p>
+      {authMode !== 'google' && <form onSubmit={handleAuth} className="form-stack">{authMode !== 'reset' && <label>Email address<input type="email" name="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required disabled={authMode==='forgot'&&busy}/></label>}{(authMode === 'signin' || authMode === 'signup' || authMode === 'reset') && <label>{authMode==='reset'?'New password':'Password'}<input type="password" name="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder={authMode==='reset'?'At least 8 characters':'At least 8 characters'} minLength={8} required/></label>}<button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : authMode === 'signup' ? 'Create account' : authMode === 'forgot' ? 'Email reset link' : 'Save new password'} <span>→</span></button></form>}
+      {authMode === 'signin' && <><button className="outline-button auth-google" onClick={()=>void startGoogleSignIn()} disabled={busy}><span className="google-g">G</span> Continue with Google</button><button className="text-button forgot-link" onClick={()=>{setAuthMode('forgot');setAuthMessage('')}}>Forgot password?</button></>}
+      {authMode === 'google' && <button className="primary full" onClick={()=>void startGoogleSignIn()} disabled={busy}>Continue with Google <ArrowUpRight size={15}/></button>}
+      {authMessage && <p className="notice">{authMessage}</p>}
+      {authMode!=='reset' && <p className="switch-auth">{authMode === 'signup' ? 'Already have an account?' : 'New to ProjectHub?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signup' || authMode==='forgot' || authMode==='google' ? 'signin' : 'signup');setAuthMessage('')}}>{authMode === 'signup' ? 'Sign in' : authMode==='forgot' || authMode==='google' ? 'Sign in' : 'Create an account'}</button></p>}
+      {authMode==='reset' && <p className="switch-auth"><button className="text-button" onClick={()=>{setAuthMode('signin');setAuthMessage('')}}>Back to sign in</button></p>}
+      <div className="secure-note"><LockKeyhole size={14}/> Your workspace access is protected.</div></div></section>
     </main>
   )
 
-  return <div className={`app-shell ${prefs.mode === 'light' ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
+  return <div className={`app-shell ${prefs.mode === 'light' && !displayCompany ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Command size={19}/></div><span>CKPC <span className="accent">project hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
-      <button className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div><b>{profileName || session.user.email?.split('@')[0] || 'My workspace'}</b><small>Free workspace</small></div><ChevronDown size={15}/></button>
+      <div className="brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={19}/></div>}<span>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
+      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>0&&<select aria-label="Switch workspace" value={selectedCompanyId ?? ''} onChange={e=>{const value=e.target.value||null;setSelectedCompanyId(value);try{localStorage.setItem('projecthub-selected-workspace-id',value??'personal')}catch{/* ignore storage */}}}><option value="">Personal workspace</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
       <div className="nav-label">WORKSPACE</div>
       <button className={`nav-item ${tab==='home'?'active':''}`} title="Dashboard" onClick={()=>setTab('home')}><LayoutDashboard size={17}/> Dashboard</button>
       <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><Activity size={17}/> Project overview</button>
@@ -430,16 +677,22 @@ export default function App() {
       <button className={`nav-item ${tab==='calendar'?'active':''}`} onClick={()=>setTab('calendar')}><CalendarDays size={17}/> Calendar</button>
       <button className={`nav-item ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><Users size={17}/> Team & access</button>
       <button className={`nav-item ${tab==='discussion'?'active':''}`} onClick={()=>setTab('discussion')}><MessageCircle size={17}/> Discussion <span className="nav-count">{comments.length}</span></button>
-      <button className={`nav-item ${tab==='settings'?'active':''}`} onClick={()=>setTab('settings')}><Settings2 size={17}/> Personalise</button>
+      {selectedCompany && <button className={`nav-item ${tab==='company'?'active':''}`} onClick={()=>setTab('company')}><Building2 size={17}/> Company profile</button>}
+      {selectedCompany && <button className={`nav-item ${tab==='attendance'?'active':''}`} onClick={()=>setTab('attendance')}><Clock3 size={17}/>{isCompanyAdmin?'Attendance schedule':'My attendance'}</button>}
+      <button className={`nav-item ${tab==='settings'?'active':''}`} onClick={()=>setTab('settings')}><Settings2 size={17}/> Settings</button>
       <div className="project-list-head"><span className="nav-label">YOUR PROJECTS</span><button className="icon-button small" onClick={()=>setShowCreate(true)} title="Create project"><Plus size={16}/></button></div>
       <div className="sidebar-projects">{filteredProjects.slice(0,10).map((p,i)=><button key={p.id} className={`project-nav ${selectedId===p.id?'chosen':''}`} onClick={()=>{setSelectedId(p.id);setTab('stages')}}><span className={`project-dot ${colors[i%colors.length]}`}/><span className="truncate">{p.name}</span></button>)}{filteredProjects.length===0&&<p className="sidebar-empty">No matching projects.</p>}</div>
       <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><CircleHelp size={17}/></div><b>ProjectHub workspace</b><p>Plan work, coordinate people, and keep updates together.</p></div><div className="profile"><div className="profile-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="profile-meta"><b>{profileName || session.user.email}</b><small>Signed in</small></div><button className="icon-button" title="Sign out" onClick={signOut}><LogOut size={16}/></button></div></div>
     </aside>
     <main className="main-panel">
-      <header className="topbar"><div className="breadcrumbs"><span>CKPC project hub</span><span className="crumb-slash">/</span><b>{tab==='home'?'Dashboard':selected?.name ?? 'Dashboard'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
+      <header className="topbar"><div className="breadcrumbs"><span>{displayCompany?.name ?? 'CKPC'} Project Hub</span><span className="crumb-slash">/</span><b>{tab==='home'?'Dashboard':tab==='company'?'Company profile':tab==='attendance'?(isCompanyAdmin?'Attendance schedule':'My attendance'):tab==='settings'?'Settings':selected?.name ?? 'Dashboard'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
       <div className="page-content">
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
-        {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> : !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
+        {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
+        tab==='company' ? (selectedCompany ? <CompanyProfile company={selectedCompany} isAdmin={isCompanyAdmin} members={companyMembers} rows={companyRows} assignments={companyAssignments} availableProjects={projects} busy={busy} onSave={saveCompanyProfile} onLogoUpload={uploadCompanyLogo} onInvite={inviteCompanyMember} onLinkProject={linkProjectToCompany} onUnlinkProject={unlinkProjectFromCompany} onAssign={assignCompanyProject} onMemberUpdate={updateCompanyMember} onRemoveMember={removeCompanyMember} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} inviteEmail={companyInviteEmail} setInviteEmail={setCompanyInviteEmail} inviteRole={companyInviteRole} setInviteRole={setCompanyInviteRole} assignProjectId={assignProjectId} setAssignProjectId={setAssignProjectId} assignEmployeeId={assignEmployeeId} setAssignEmployeeId={setAssignEmployeeId}/> : <section className="panel"><h2>No company selected</h2><p>Create a company from Settings, or accept a company invitation from your email.</p><button className="primary" onClick={()=>setTab('settings')}>Open Settings</button></section>) :
+        tab==='attendance' ? (selectedCompany ? <AttendancePage company={selectedCompany} currentUser={session.user} isAdmin={isCompanyAdmin}/> : <section className="panel"><h2>No company selected</h2><p>Select a company first.</p></section>) :
+        tab==='settings' ? <><CompanySettings companies={companies} selectedCompanyId={selectedCompanyId} onSelect={setSelectedCompanyId} companyName={companyCreateName} setCompanyName={setCompanyCreateName} companySlug={companyCreateSlug} setCompanySlug={setCompanyCreateSlug} logoFile={companyCreateLogo} setLogoFile={setCompanyCreateLogo} onCreate={createCompany} busy={busy}/><Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''} companyThemeLocked={Boolean(selectedCompany)} onOpenCompany={()=>setTab('company')}/></> :
+        !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
           <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={()=>void duplicateProject()} title="Duplicate this project with all stages and tasks"><FolderKanban size={14}/> Duplicate project</button>}{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}{canEdit(selected.role)&&<button className="outline-button danger-outline" disabled={busy} onClick={()=>void removeProjectFromWorkspace()} title="Remove this project from your list without deleting its data"><Trash2 size={14}/> Remove project</button>}</div></div>
           {tab==='overview' && <>
@@ -464,10 +717,9 @@ export default function App() {
           {tab==='stage_detail' && selectedStage && <StageDetail stage={selectedStage} tasks={selectedStageTasks} allProjectTasks={tasks} taskFields={taskFields} canManage={canEdit(selected.role)} canComment={canComment(selected.role)} currentUserId={session.user.id} comments={stageComments} commentText={stageCommentText} setCommentText={setStageCommentText} busy={busy} onBack={()=>setTab('stages')} onEdit={()=>openEditStage(selectedStage)} onDelete={()=>deleteStage(selectedStage)} onAddTask={()=>openCreateTask(selectedStage.id)} onTaskClick={openEditTask} onStatus={updateTask} onSaveTask={updateTask} onAddTaskField={addTaskField} onDeleteTaskField={deleteTaskField} onReorderTasks={reorderTasks} onCreateTaskInline={createTaskInline} onComment={addStageComment} onEditComment={comment=>editThreadComment('stage',comment)} onDeleteComment={comment=>deleteThreadComment('stage',comment)} />}
           {tab==='team' && <section className="panel"><div className="panel-heading"><div><h2>Team & access</h2><p>Manage people and permissions for this project.</p></div><span className="count-pill">{members.length} members</span></div>{selected.role==='owner'&&<form className="invite-form" onSubmit={inviteMember}><div className="form-grid"><label>Existing user's email<input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="teammate@example.com" required/></label><label>Project role<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as Role)}><option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option></select></label></div><p className="muted tiny">This adds an account that has already registered in this Supabase project. Email invitations to new accounts need a server-side email invitation function.</p><button className="primary compact" disabled={busy}><UserPlus size={15}/>{busy?'Adding…':'Add existing user'}</button></form>}{members.map(m=><div className="member-row" key={m.user_id}><div className="member-avatar">{m.user_id===session.user.id?(session.user.email??'U').slice(0,1).toUpperCase():'U'}</div><div className="member-info"><b>{m.user_id===session.user.id?'You':`Member ${m.user_id.slice(0,8)}`}</b><small>{m.user_id===session.user.id?session.user.email:m.user_id}</small></div>{m.user_id===session.user.id?<span className="role-badge role-owner">{roleLabels[m.role]}</span>:selected.role==='owner'?<><select aria-label="Member role" value={m.role} disabled={m.role==='owner'} onChange={e=>changeMemberRole(m,e.target.value as Role)}><option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option><option value="owner" disabled>Owner</option></select><button className="icon-button" title="Remove member" onClick={()=>removeMember(m)}><Trash2 size={15}/></button></>:<span className="role-badge">{roleLabels[m.role]}</span>}</div>)}{members.length===0&&<Empty icon={<Users/>} title="No team members yet" body="Project members will appear here."/>}</section>}
           {tab==='discussion' && <section className="panel discussion-panel"><div className="panel-heading"><div><h2>Project discussion</h2><p>Share updates and keep everyone in the loop.</p></div><span className="count-pill">{comments.length}</span></div><div className="discussion-list">{comments.length===0?<Empty icon={<MessageCircle/>} title="Start the conversation" body="Share a thought, ask a question, or post an update."/>:comments.map(c=><article className="comment" key={c.id}><div className="comment-avatar">{c.user_id===session.user.id?(session.user.email??'U').slice(0,1).toUpperCase():'M'}</div><div className="comment-body"><div className="comment-meta"><b>{c.user_id===session.user.id?'You':`Member ${c.user_id.slice(0,8)}`}</b><time>{new Date(c.created_at).toLocaleString()}</time></div><p>{c.body}</p></div></article>)}</div>{canComment(selected.role)?<form className="comment-form" onSubmit={addComment}><div className="comment-avatar self">{(session.user.email??'U').slice(0,1).toUpperCase()}</div><div className="comment-compose"><textarea value={commentText} onChange={e=>setCommentText(e.target.value)} placeholder="Write a comment…" rows={2}/><div className="compose-footer"><span>Be kind. Keep it constructive.</span><button className="primary compact" disabled={busy||!commentText.trim()}>Post comment <ArrowLeft size={14} className="send-icon"/></button></div></div></form>:<div className="viewer-note"><Eye size={15}/> You have view-only access.</div>}</section>}
-          {tab==='settings' && <Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''}/>}
         </>
         }
-        <div className="page-footer"><span>© 2026 ProjectHub</span><span><LockKeyhole size={12}/> Built for focused collaboration</span></div>
+        <div className="page-footer"><span>© 2026 Project Hub</span><span><LockKeyhole size={12}/> Built for focused collaboration</span></div>
       </div>
     </main>
     {showCreate&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowCreate(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">NEW WORKSPACE</span><h2>Create a project</h2><p>Give your team a dedicated place to work together.</p></div><button className="icon-button" onClick={()=>setShowCreate(false)}><X size={18}/></button></div><form onSubmit={createProject} className="form-stack"><label>Project name<input autoFocus value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="e.g. Website redesign" maxLength={80} required/></label><label>Description <span className="optional">(optional)</span><textarea value={projectDescription} onChange={e=>setProjectDescription(e.target.value)} placeholder="What is this project about?" rows={3} maxLength={500}/></label><div className="modal-note"><LockKeyhole size={15}/> Your new project starts private.</div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowCreate(false)}>Cancel</button><button className="primary" disabled={busy||!projectName.trim()}><Plus size={16}/>{busy?'Creating…':'Create project'}</button></div></form></section></div>}
@@ -475,6 +727,267 @@ export default function App() {
     {showStage&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowStage(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT STAGE</span><h2>{editingStage?'Edit stage':'Create a stage'}</h2><p>Stages group related tasks and summarize their progress.</p></div><button type="button" className="icon-button" onClick={()=>setShowStage(false)}><X size={18}/></button></div><form onSubmit={saveStage} className="form-stack"><label>Stage name<input autoFocus value={stageName} onChange={e=>setStageName(e.target.value)} placeholder="e.g. Flooring" maxLength={160} required/></label><label>Description<textarea value={stageDescription} onChange={e=>setStageDescription(e.target.value)} rows={3} maxLength={5000} placeholder="Describe the purpose or scope of this stage."/></label><div className="form-grid"><label>Stage start date<input type="date" value={stageStart} max={stageEnd||undefined} onChange={e=>setStageStart(e.target.value)}/></label><label>Stage end date<input type="date" value={stageEnd} min={stageStart||undefined} onChange={e=>setStageEnd(e.target.value)}/></label></div><p className="muted tiny">Tasks must stay within the stage date range. Leave a boundary blank if it is not defined.</p><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowStage(false)}>Cancel</button><button className="primary" disabled={busy||!stageName.trim()}><Check size={15}/>{busy?'Saving…':editingStage?'Save changes':'Create stage'}</button></div></form></section></div>}
     {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal task-edit-modal"><div className="modal-head"><div><span className="eyebrow">STAGE TASK</span><h2>{editingTask?'Edit task':'Add a task'}</h2><p>{selectedStage?.name ?? stages.find(s=>s.id===taskStageId)?.name ?? 'Stage'} · update dates, details, status and comments any time.</p></div><button type="button" className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={saveTask} className="form-stack"><label>Task name<input autoFocus disabled={!canEdit(selected.role)} value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Lay tiles" maxLength={160} required/></label><label>Description<textarea disabled={!canEdit(selected.role)} value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={3} maxLength={5000} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Status<select disabled={!canEdit(selected.role)} value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To be started</option><option value="in_progress">Ongoing</option><option value="done">Completed</option></select></label><label>Priority<select disabled={!canEdit(selected.role)} value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input disabled={!canEdit(selected.role)} type="date" value={taskStart} min={stages.find(s=>s.id===taskStageId)?.start_date||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskStart(e.target.value)}/></label><label>End date<input disabled={!canEdit(selected.role)} type="date" value={taskDue} min={[taskStart,stages.find(s=>s.id===taskStageId)?.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Close</button>{canEdit(selected.role)&&<button className="primary" disabled={busy||!taskTitle.trim()}><Check size={15}/>{busy?'Saving…':editingTask?'Save task':'Create task'}</button>}{editingTask&&canEdit(selected.role)&&<button type="button" className="outline-button danger-button" onClick={()=>deleteTask(editingTask)}><Trash2 size={14}/> Delete task</button>}</div></form>{editingTask&&<div className="task-modal-comments"><CommentThread title="Task comments" comments={taskComments} canComment={canComment(selected.role)} canManage={canEdit(selected.role)} currentUserId={session.user.id} commentText={taskCommentText} setCommentText={setTaskCommentText} busy={busy} onSubmit={addTaskComment} onEdit={comment=>editThreadComment('task',comment)} onDelete={comment=>deleteThreadComment('task',comment)} placeholder="Comment on this task…"/></div>}</section></div>}
   </div>
+}
+
+
+
+function indiaDate(date = new Date()) {
+ const parts = new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date)
+ const part=(key:string)=>parts.find(x=>x.type===key)?.value??''
+ return `${part('year')}-${part('month')}-${part('day')}`
+}
+function indiaTime(value:string|null|undefined) {
+ if(!value)return '—'
+ return new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true}).format(new Date(value))
+}
+function shortDate(value:string|null|undefined) {
+ if(!value)return '—'
+ return new Date(value+'T00:00:00').toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'})
+}
+function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUser:{id:string;email?:string};isAdmin:boolean}) {
+ const [scheduleDate,setScheduleDate]=useState(indiaDate())
+ const [myAttendance,setMyAttendance]=useState<AttendanceRecord[]>([])
+ const [myLeaves,setMyLeaves]=useState<CompanyLeaveRecord[]>([])
+ const [schedule,setSchedule]=useState<AttendanceScheduleRow[]>([])
+ const [workMode,setWorkMode]=useState<'office'|'work_from_home'>('office')
+ const [leaveStart,setLeaveStart]=useState(indiaDate())
+ const [leaveEnd,setLeaveEnd]=useState(indiaDate())
+ const [leaveReason,setLeaveReason]=useState('')
+ const [loading,setLoading]=useState(true)
+ const [busy,setBusy]=useState(false)
+ const [message,setMessage]=useState('')
+ const [waGroupName,setWaGroupName]=useState('Brickmen group')
+ const [waGroupId,setWaGroupId]=useState('')
+ const [waEnabled,setWaEnabled]=useState(false)
+ const today=indiaDate()
+ const todayRecord=myAttendance.find(record=>record.attendance_date===today)
+ const editable=Boolean(todayRecord&&!todayRecord.frozen_at&&new Date(todayRecord.editable_until).getTime()>Date.now())
+ const onLeaveToday=myLeaves.some(leave=>leave.status==='active'&&leave.start_date<=today&&leave.end_date>=today)
+
+ useEffect(()=>{
+  let alive=true
+  async function load(){
+   if(!supabase){setLoading(false);return}
+   setLoading(true)
+   const [attendanceResult,leaveResult]=await Promise.all([
+    supabase.from('company_attendance').select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('attendance_date',{ascending:false}).limit(60),
+    supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('start_date',{ascending:false}).limit(60)
+   ])
+   if(!alive)return
+   if(attendanceResult.error)setMessage('Could not load your attendance: '+attendanceResult.error.message)
+   else {
+    const loadedAttendance=(attendanceResult.data??[]) as AttendanceRecord[]
+    setMyAttendance(loadedAttendance)
+    const todayEntry=loadedAttendance.find(record=>record.attendance_date===indiaDate())
+    setWorkMode(todayEntry?.work_mode??'office')
+   }
+   if(leaveResult.error)setMessage('Could not load your leave history: '+leaveResult.error.message)
+   else setMyLeaves((leaveResult.data??[]) as CompanyLeaveRecord[])
+   if(isAdmin){
+    const [scheduleResult,settingsResult]=await Promise.all([
+     supabase.rpc('get_company_attendance_schedule',{p_company_id:company.id,p_date:scheduleDate}),
+     supabase.from('company_whatsapp_settings').select('company_id,group_name,group_id,enabled,timezone,updated_by,updated_at').eq('company_id',company.id).maybeSingle()
+    ])
+    if(!alive)return
+    if(scheduleResult.error)setMessage('Could not load the employee attendance schedule: '+scheduleResult.error.message)
+    else setSchedule((scheduleResult.data??[]) as AttendanceScheduleRow[])
+    if(settingsResult.error)setMessage('WhatsApp settings could not load: '+settingsResult.error.message)
+    else if(settingsResult.data){setWaGroupName(settingsResult.data.group_name??'Brickmen group');setWaGroupId(settingsResult.data.group_id==='NOT_CONFIGURED'?'':settingsResult.data.group_id??'');setWaEnabled(Boolean(settingsResult.data.enabled))}
+    else {setWaGroupName('Brickmen group');setWaGroupId('');setWaEnabled(false)}
+   } else setSchedule([])
+   setLoading(false)
+  }
+  void load()
+  return ()=>{alive=false}
+ },[company.id,currentUser.id,isAdmin,scheduleDate])
+
+ async function startOrUpdateWork(){
+  if(!supabase)return
+  if(onLeaveToday){setMessage('You have an active leave record for today. Cancel it first if you are returning to work.');return}
+  setBusy(true);setMessage('')
+  if(todayRecord){
+   if(!editable){setMessage('This attendance entry is frozen. Work location can only be changed within the first hour after check-in.');setBusy(false);return}
+   const {data,error}=await supabase.from('company_attendance').update({work_mode:workMode}).eq('id',todayRecord.id).select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').single()
+   if(error)setMessage('Could not update attendance: '+error.message)
+   else {setMyAttendance(current=>current.map(row=>row.id===data.id?data as AttendanceRecord:row));setMessage('Work location updated. Your original check-in time has not changed.')}
+  }else{
+   const {data,error}=await supabase.from('company_attendance').insert({company_id:company.id,user_id:currentUser.id,attendance_date:today,work_mode:workMode}).select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').single()
+   if(error)setMessage('Could not start work mode: '+error.message)
+   else {setMyAttendance(current=>[data as AttendanceRecord,...current.filter(row=>row.attendance_date!==today)]);setMessage('Work mode started. You have one hour to correct the work location; the entry time will remain fixed.')}
+  }
+  setBusy(false)
+ }
+ async function submitLeave(e:FormEvent){
+  e.preventDefault()
+  if(!supabase||leaveEnd<leaveStart||leaveStart<today){setMessage('Choose a valid leave period starting today or later.');return}
+  setBusy(true);setMessage('')
+  const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null}).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  if(error)setMessage('Could not submit leave: '+error.message)
+  else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setMessage('Leave added to the company schedule. It will be reflected in the 10 AM attendance message.')}
+  setBusy(false)
+ }
+ async function cancelLeave(leave:CompanyLeaveRecord){
+  if(!supabase||leave.status!=='active'||leave.start_date<today)return
+  if(!confirm(`Cancel leave from ${shortDate(leave.start_date)} to ${shortDate(leave.end_date)}?`))return
+  const {data,error}=await supabase.from('company_leave').update({status:'cancelled'}).eq('id',leave.id).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  if(error)setMessage('Could not cancel leave: '+error.message)
+  else {setMyLeaves(current=>current.map(row=>row.id===leave.id?data as CompanyLeaveRecord:row));setMessage('Upcoming leave cancelled.')}
+ }
+ async function saveWhatsAppSettings(e:FormEvent){
+  e.preventDefault()
+  if(!supabase||!isAdmin)return
+  if(waEnabled&&!waGroupId.trim()){setMessage('Enter the WhatsApp Groups API group ID before enabling daily messages.');return}
+  setBusy(true);setMessage('')
+  const {error}=await supabase.from('company_whatsapp_settings').upsert({
+   company_id:company.id,group_name:waGroupName.trim()||'Company attendance group',group_id:waGroupId.trim()||'NOT_CONFIGURED',
+   enabled:waEnabled,timezone:'Asia/Kolkata',updated_by:currentUser.id,updated_at:new Date().toISOString()
+  },{onConflict:'company_id'})
+  if(error)setMessage('Could not save WhatsApp settings: '+error.message)
+  else setMessage(waEnabled?'WhatsApp delivery is enabled in the workspace settings. It will send only after Meta credentials and the 10 AM cron job are configured.':'WhatsApp attendance delivery is disabled.')
+  setBusy(false)
+ }
+ const statusText=(row:AttendanceScheduleRow)=>row.attendance_status==='working'?'Working':row.attendance_status==='on_leave'?'On leave':'Not signed in'
+ const statusClass=(status:string)=>status==='working'?'working':status==='on_leave'?'on-leave':'not-signed-in'
+ return <section className="attendance-page">
+  <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> COMPANY ATTENDANCE</div><h1>{isAdmin?'Attendance schedule':'My attendance'}</h1><p>{isAdmin?'Company-wide employee attendance is visible only to admins.':'Submit your own work mode and leave dates. You cannot see other employees’ attendance.'}</p></div><div className="heading-actions"><span className="role-badge"><ShieldCheck size={13}/>{isAdmin?'Company admin':'Employee'}</span></div></div>
+  {message&&<div className="notice-banner"><span>{message}</span><button className="icon-button" onClick={()=>setMessage('')}><X size={15}/></button></div>}
+  <section className="panel my-attendance-panel">
+   <div className="panel-heading"><div><h2>My daily work mode</h2><p>Today's date in India: {shortDate(today)} · Check-in time is recorded by the server.</p></div><Clock3 size={19}/></div>
+   {onLeaveToday&&<div className="attendance-alert"><CalendarDays size={16}/> You are marked on leave today.</div>}
+   <div className="attendance-checkin-row"><div className="attendance-checkin-details"><span className="eyebrow">{todayRecord?'TODAY’S ENTRY':'START WORK'}</span><b>{todayRecord?'Entered work mode at '+indiaTime(todayRecord.started_at):'Choose how you are working today'}</b><small>{todayRecord?(editable?'Editable until '+indiaTime(todayRecord.editable_until):'Frozen · corrections closed at '+indiaTime(todayRecord.editable_until)):'Your entry becomes immutable one hour after you check in.'}</small></div>
+    <label>Work location<select value={workMode} onChange={e=>setWorkMode(e.target.value as 'office'|'work_from_home')} disabled={Boolean(todayRecord&&!editable)||onLeaveToday}><option value="office">Office</option><option value="work_from_home">Work from home</option></select></label>
+    <button className="primary" onClick={()=>void startOrUpdateWork()} disabled={busy||onLeaveToday||Boolean(todayRecord&&!editable)}>{busy?'Saving…':todayRecord?'Update location':'Start work'}</button>
+   </div>
+  </section>
+  <section className="panel">
+   <div className="panel-heading"><div><h2>Request / record leave</h2><p>Leave is visible to company admins for the selected date range.</p></div><CalendarDays size={18}/></div>
+   <form className="form-stack attendance-leave-form" onSubmit={submitLeave}><div className="form-grid"><label>Leave starts<input type="date" min={today} value={leaveStart} onChange={e=>{setLeaveStart(e.target.value);if(leaveEnd<e.target.value)setLeaveEnd(e.target.value)}} required/></label><label>Leave ends<input type="date" min={leaveStart||today} value={leaveEnd} onChange={e=>setLeaveEnd(e.target.value)} required/></label></div><label>Reason (optional)<textarea rows={2} maxLength={1000} value={leaveReason} onChange={e=>setLeaveReason(e.target.value)} placeholder="Optional note for the admin schedule"/></label><button className="primary compact" disabled={busy||leaveStart<today||leaveEnd<leaveStart}><CalendarDays size={14}/> Add leave</button></form>
+   <div className="compact-table-wrap attendance-history-wrap"><table className="compact-table attendance-history-table"><thead><tr><th>Leave dates</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    {myLeaves.map(leave=><tr key={leave.id}><td>{shortDate(leave.start_date)} – {shortDate(leave.end_date)}</td><td>{leave.reason||'—'}</td><td><span className={'company-role-pill '+(leave.status==='active'?'admin':'employee')}>{leave.status==='active'?'Active':'Cancelled'}</span></td><td>{leave.status==='active'&&leave.start_date>=today?<button className="outline-button compact" onClick={()=>void cancelLeave(leave)}>Cancel</button>:'—'}</td></tr>)}
+    {myLeaves.length===0&&<tr><td colSpan={4}>No leave entries yet.</td></tr>}
+   </tbody></table></div>
+  </section>
+  <section className="panel">
+   <div className="panel-heading"><div><h2>My attendance history</h2><p>Your own entries only. Records become immutable after the first hour.</p></div><Clock3 size={18}/></div>
+   <div className="compact-table-wrap attendance-history-wrap"><table className="compact-table attendance-history-table"><thead><tr><th>Date</th><th>Work mode</th><th>Entry time</th><th>Correction window</th><th>Status</th></tr></thead><tbody>
+    {myAttendance.map(record=><tr key={record.id}><td>{shortDate(record.attendance_date)}</td><td>{record.work_mode==='work_from_home'?'Work from home':'Office'}</td><td>{indiaTime(record.started_at)}</td><td>{indiaTime(record.editable_until)}</td><td><span className={'company-role-pill '+(record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'employee':'admin')}>{record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'Frozen':'Editable'}</span></td></tr>)}
+    {myAttendance.length===0&&<tr><td colSpan={5}>No attendance records yet.</td></tr>}
+   </tbody></table></div>
+  </section>
+  {isAdmin&&<section className="panel attendance-admin-panel">
+   <div className="panel-heading"><div><h2>Employee attendance schedule</h2><p>This table is admin-only. Choose a date to see working, leave, and not-signed-in statuses.</p></div><Users size={19}/></div>
+   <div className="attendance-admin-toolbar"><label>Schedule date<input type="date" value={scheduleDate} onChange={e=>setScheduleDate(e.target.value)} max={new Date(Date.now()+365*86400000).toISOString().slice(0,10)}/></label><span>{schedule.filter(row=>row.attendance_status==='working').length} working · {schedule.filter(row=>row.attendance_status==='on_leave').length} on leave · {schedule.filter(row=>row.attendance_status==='not_signed_in').length} not signed in</span></div>
+   {loading?<div className="dashboard-loading"><LoaderCircle className="spin"/>Loading attendance…</div>:<div className="compact-table-wrap attendance-history-wrap"><table className="compact-table company-deadline-table attendance-schedule-table"><thead><tr><th>Employee</th><th>Status</th><th>Work location</th><th>Entered work mode</th><th>Correction cutoff</th><th>Leave dates</th></tr></thead><tbody>
+   {schedule.map(row=><tr key={row.user_id}><td><b>{row.employee_name}</b><small className="attendance-email">{row.employee_email}</small></td><td><span className={'attendance-status-pill '+statusClass(row.attendance_status)}>{statusText(row)}</span></td><td>{row.work_mode==='work_from_home'?'Work from home':row.work_mode==='office'?'Office':'—'}</td><td>{indiaTime(row.started_at)}</td><td>{row.editable_until?(row.is_frozen?'Frozen · ':'Editable until ')+indiaTime(row.editable_until):'—'}</td><td>{row.leave_start?shortDate(row.leave_start)+' – '+shortDate(row.leave_end):'—'}</td></tr>)}
+   {schedule.length===0&&<tr><td colSpan={6}>No employees found in this company.</td></tr>}
+   </tbody></table></div>}
+  </section>
+  }
+  {isAdmin&&<section className="panel attendance-whatsapp-panel">
+   <div className="panel-heading"><div><h2>10 AM WhatsApp attendance message</h2><p>Configure the destination for daily employee status messages.</p></div><Mail size={19}/></div>
+   <form className="form-stack attendance-wa-form" onSubmit={saveWhatsAppSettings}><div className="form-grid"><label>WhatsApp group name<input value={waGroupName} onChange={e=>setWaGroupName(e.target.value)} maxLength={120} placeholder="Brickmen group" required/></label><label>WhatsApp Groups API group ID<input value={waGroupId} onChange={e=>setWaGroupId(e.target.value)} placeholder="Paste the group ID from Meta's Groups API" /></label></div><label className="attendance-toggle"><input type="checkbox" checked={waEnabled} onChange={e=>setWaEnabled(e.target.checked)}/> Enable daily 10:00 AM IST employee status messages</label><div className="attendance-whatsapp-warning"><AlertCircle size={17}/><p>The official WhatsApp Groups API only supports eligible WhatsApp Business accounts and API-enabled groups. A normal existing WhatsApp group may not be addressable. The Edge Function, WhatsApp credentials, and cron schedule must also be configured before a message can actually be sent.</p></div><button className="primary compact" disabled={busy}><Save size={14}/> Save WhatsApp settings</button></form>
+  </section>}
+ </section>
+}
+
+function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCompanyName,companySlug,setCompanySlug,logoFile,setLogoFile,onCreate,busy}:{companies:Company[];selectedCompanyId:string|null;onSelect:(id:string|null)=>void;companyName:string;setCompanyName:(value:string)=>void;companySlug:string;setCompanySlug:(value:string)=>void;logoFile:File|null;setLogoFile:(file:File|null)=>void;onCreate:(e:FormEvent)=>void;busy:boolean}) {
+  const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64)
+  return <section className="panel company-settings-panel">
+    <div className="panel-heading"><div><h2>Companies & workspaces</h2><p>Create separate company spaces. Existing projects remain personal until an admin links them.</p></div><Building2 size={20}/></div>
+    {companies.length>0&&<div className="company-switch-row"><label>Active workspace<select value={selectedCompanyId??''} onChange={e=>{const value=e.target.value||null;onSelect(value);try{localStorage.setItem('projecthub-selected-workspace-id',value??'personal')}catch{/* ignore storage */}}}><option value="">Personal workspace</option>{companies.map(company=><option key={company.id} value={company.id}>{company.name} · {company.role==='admin'?'Admin':'Employee'}</option>)}</select></label></div>}
+    <form className="form-stack company-create-form" onSubmit={onCreate}>
+      <h3>Create a company</h3>
+      <div className="form-grid"><label>Company name<input value={companyName} onChange={e=>{setCompanyName(e.target.value);setCompanySlug(slugify(e.target.value))}} placeholder="e.g. Brickmen" maxLength={120} required/></label><label>Company login/invitation URL name<input value={companySlug} onChange={e=>setCompanySlug(slugify(e.target.value))} placeholder="brickmen" pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]" minLength={3} maxLength={64} required/><small className="muted">Used to show the right branding on company invitation and login links.</small></label></div>
+      <label className="company-logo-input-label">Company logo (optional)<input type="file" accept="image/*" onChange={e=>setLogoFile(e.target.files?.[0]??null)}/>{logoFile&&<small className="muted">Selected: {logoFile.name}</small>}<small className="muted">Image file up to 3 MB. You can change it later in Company profile.</small></label>
+      <div className="modal-note"><ShieldCheck size={15}/> You become the first company admin. Admins can invite partners as admins and staff as employees.</div>
+      <div><button className="primary" disabled={busy||!companyName.trim()||companySlug.trim().length<3}><Plus size={15}/>{busy?'Creating…':'Create company'}</button></div>
+    </form>
+    {companies.length>0&&<div className="company-choice-list"><h3>Your companies</h3>{companies.map(company=><button type="button" key={company.id} className={selectedCompanyId===company.id?'company-choice selected':'company-choice'} onClick={()=>onSelect(company.id)}>{company.logo_url?<img src={company.logo_url} alt="" />:<span className="company-choice-mark"><Building2 size={16}/></span>}<span><b>{company.name} Project Hub</b><small>{company.role==='admin'?'Admin access':'Employee access'} · /?company={company.slug}</small></span>{selectedCompanyId===company.id&&<Check size={16}/>}</button>)}</div>}
+  </section>
+}
+
+function CompanyProfile({company,isAdmin,members,rows,assignments,availableProjects,busy,onSave,onLogoUpload,onInvite,onLinkProject,onUnlinkProject,onAssign,onMemberUpdate,onRemoveMember,linkProjectId,setLinkProjectId,inviteEmail,setInviteEmail,inviteRole,setInviteRole,assignProjectId,setAssignProjectId,assignEmployeeId,setAssignEmployeeId}:{
+ company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;
+ onSave:(patch:Partial<Pick<Company,'name'|'logo_url'|'theme'>>)=>Promise<void>;onLogoUpload:(file:File)=>Promise<void>;
+ onInvite:(e:FormEvent)=>void;onLinkProject:()=>Promise<void>;onUnlinkProject:(id:string)=>Promise<void>;onAssign:()=>Promise<void>;
+ onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
+ linkProjectId:string;setLinkProjectId:(id:string)=>void;inviteEmail:string;setInviteEmail:(email:string)=>void;inviteRole:CompanyRole;setInviteRole:(role:CompanyRole)=>void;assignProjectId:string;setAssignProjectId:(id:string)=>void;assignEmployeeId:string;setAssignEmployeeId:(id:string)=>void;
+}) {
+ const [name,setName]=useState(company.name)
+ const [theme,setTheme]=useState<CompanyTheme>({...defaultCompanyTheme,...(company.theme??{})})
+ const [editName,setEditName]=useState(false)
+ useEffect(()=>{setName(company.name);setTheme({...defaultCompanyTheme,...(company.theme??{})})},[company.id,company.name,JSON.stringify(company.theme)])
+ const projectList=Array.from(new Map(rows.map(row=>[row.project_id,{id:row.project_id,name:row.project_name,description:row.project_description}])).values())
+ const linkedIds=new Set(projectList.map(p=>p.id))
+ const linkable=availableProjects.filter(p=>!linkedIds.has(p.id))
+ const dates=rows.flatMap(row=>[row.stage_start,row.stage_end]).filter((d):d is string=>Boolean(d)).sort()
+ const start=dates[0]??new Date().toISOString().slice(0,10)
+ const end=dates[dates.length-1]??new Date(Date.now()+1000*60*60*24*180).toISOString().slice(0,10)
+ const minDate=new Date(start+'T00:00:00'),maxDate=new Date(end+'T00:00:00')
+ const span=Math.max(1,maxDate.getTime()-minDate.getTime())
+ const uniqueRows=rows.filter(row=>row.stage_id)
+ const dateLabel=(value:string|null)=>value?new Date(value+'T00:00:00').toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'}):'—'
+ const setThemeField=(key:keyof CompanyTheme,value:string)=>setTheme(current=>({...current,[key]:value,preset:'custom'}))
+ const choosePreset=(preset:string)=>setTheme({...defaultCompanyTheme,...(themePresets[preset]??themePresets['blue-night']),preset})
+ const doSaveTheme=()=>void onSave({theme})
+ return <section className="company-profile-page">
+   <div className="company-profile-hero panel">
+    <div className="company-profile-identity">{company.logo_url?<img src={company.logo_url} alt={company.name+' logo'} className="company-profile-logo"/>:<div className="company-profile-logo logo-placeholder"><Building2 size={28}/></div>}<div><span className="eyebrow">COMPANY WORKSPACE</span><h1>{company.name} Project Hub</h1><p>{company.role==='admin'?'Admin access · You can manage this company profile.':'Employee access · Company profile is read-only for you.'}</p></div></div>
+    {isAdmin&&<div className="company-profile-actions"><label className="outline-button upload-logo-button"><Upload size={15}/> Upload logo<input type="file" accept="image/*" hidden onChange={e=>{const f=e.target.files?.[0];if(f)void onLogoUpload(f);e.currentTarget.value=''}}/></label><button className="outline-button" onClick={()=>setEditName(v=>!v)}><Pencil size={14}/> Edit company name</button></div>}
+   </div>
+   {isAdmin&&editName&&<form className="panel form-stack company-name-editor" onSubmit={e=>{e.preventDefault();if(name.trim())void onSave({name:name.trim()}).then(()=>setEditName(false))}}><label>Company name<input value={name} onChange={e=>setName(e.target.value)} maxLength={120} required/></label><div><button className="primary" disabled={busy||!name.trim()}><Save size={14}/> Save company name</button></div></form>}
+   <div className="company-metric-row"><div className="company-metric"><span>PROJECTS LINKED</span><b>{projectList.length}</b></div><div className="company-metric"><span>STAGES SHOWN</span><b>{uniqueRows.length}</b></div><div className="company-metric"><span>EMPLOYEES & ADMINS</span><b>{members.length}</b></div><div className="company-metric"><span>UPCOMING STAGE ENDS</span><b>{uniqueRows.filter(r=>r.stage_end&&r.stage_end>=new Date().toISOString().slice(0,10)).length}</b></div></div>
+   <section className="panel">
+    <div className="panel-heading"><div><h2>Combined project schedule</h2><p>Project and stage dates only. Task-level data is intentionally not shown here.</p></div><CalendarRange size={20}/></div>
+    {isAdmin&&<div className="company-inline-actions"><label>Link an existing project<select value={linkProjectId} onChange={e=>setLinkProjectId(e.target.value)}><option value="">Select a personal project…</option>{linkable.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button className="primary compact" disabled={busy||!linkProjectId} onClick={()=>void onLinkProject()}><Link2 size={14}/> Add to company</button></div>}
+    {projectList.length===0?<div className="company-empty"><FolderKanban size={25}/><h3>No company projects yet</h3><p>Personal projects remain separate. An admin can link an existing project above; its stages and dates will appear here without copying or changing the project.</p></div>:<>
+     <div className="compact-table-wrap company-table-wrap"><table className="compact-table company-deadline-table"><thead><tr><th>Project name</th><th>Stage</th><th>Stage starts</th><th>Stage deadline</th><th>Assigned employees</th>{isAdmin&&<th>Actions</th>}</tr></thead><tbody>
+      {rows.map((row,i)=><tr key={row.project_id+'-'+(row.stage_id??'no-stage')+'-'+i}><td className="company-project-name">{row.project_name}</td><td>{row.stage_name??'No stages yet'}</td><td>{dateLabel(row.stage_start)}</td><td>{dateLabel(row.stage_end)}</td><td>{row.assigned_employees?.length?row.assigned_employees.join(', '):<span className="muted">Unassigned</span>}</td>{isAdmin&&<td>{!rows.some((other,j)=>j<i&&other.project_id===row.project_id)&&<button className="icon-button small danger-icon" title="Unlink project from company" onClick={()=>void onUnlinkProject(row.project_id)}><Unlink size={14}/></button>}</td>}</tr>)}
+     </tbody></table></div>
+     <CompanyStageGantt rows={uniqueRows} start={minDate} end={maxDate} span={span}/>
+    </>}
+   </section>
+   {isAdmin&&<section className="panel">
+    <div className="panel-heading"><div><h2>Company appearance</h2><p>Changes apply to every member of {company.name}, including company invitation/login links.</p></div><Palette size={19}/></div>
+    <div className="theme-preset-grid">{Object.entries(themePresets).map(([key,preset])=><button type="button" key={key} className={theme.preset===key?'theme-preset selected':'theme-preset'} onClick={()=>choosePreset(key)}><span className="theme-swatch-row"><i style={{background:preset.bg}}/><i style={{background:preset.panel}}/><i style={{background:preset.accent}}/><i style={{background:preset.text}}/></span><b>{key==='blue-night'?'Blue Night':key==='orange-light'?'Orange · Light':key==='orange-noir'?'Orange · Noir':key==='crimson-graphite'?'Crimson Graphite':key==='emerald-slate'?'Emerald Slate':'Violet Neon'}</b></button>)}</div>
+    <div className="company-theme-colors">{([['bg','Background'],['panel','Panel'],['panel2','Raised panel'],['text','Main text'],['muted','Muted text'],['border','Borders'],['accent','Accent'],['accent2','Accent hover']] as [keyof CompanyTheme,string][]).map(([key,label])=><label key={key}>{label}<input type="color" value={theme[key]} onChange={e=>setThemeField(key,e.target.value)}/></label>)}</div>
+    <div className="company-theme-preview" style={{background:theme.bg,color:theme.text,borderColor:theme.border}}><div><b>Live company theme preview</b><small>{company.name} Project Hub</small></div><span className="theme-preview-panel" style={{background:theme.panel,borderColor:theme.border}}>Project · Stage · Deadline</span><button className="primary" style={{background:theme.accent,borderColor:theme.accent}}>Company accent</button></div>
+    <div className="settings-actions"><button className="outline-button" onClick={()=>choosePreset('blue-night')}><RefreshCw size={14}/> Reset colours</button><button className="primary" onClick={doSaveTheme} disabled={busy}><Save size={14}/> Save company theme</button></div>
+   </section>}
+   <section className="panel">
+    <div className="panel-heading"><div><h2>Employees & admins</h2><p>Company roster and access. Project assignments do not alter project-level roles.</p></div><Users size={19}/></div>
+    {isAdmin&&<form className="invite-form company-invite-form" onSubmit={onInvite}><div className="form-grid"><label>Invite by email<input type="email" autoComplete="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="partner@company.com" required/></label><label>Company role<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as CompanyRole)}><option value="admin">Admin / partner</option><option value="employee">Employee</option></select></label></div><button className="primary compact" disabled={busy||!inviteEmail.trim()}><Mail size={15}/>{busy?'Sending…':'Send invitation email'}</button><p className="muted tiny">Sending requires the invite-company-member Edge Function plus email-provider secrets. Invitations only grant company membership; they do not add the person to individual projects.</p></form>}
+    <div className="compact-table-wrap"><table className="compact-table company-members-table"><thead><tr><th>Employee name</th><th>Email</th><th>Job title</th><th>Company role</th>{isAdmin&&<th>Actions</th>}</tr></thead><tbody>
+     {members.map(member=><CompanyMemberEditor key={member.user_id} member={member} isAdmin={isAdmin} currentMember={member.user_id===company.created_by} onSave={patch=>onMemberUpdate(member,patch)} onRemove={()=>void onRemoveMember(member)}/>)}
+     {members.length===0&&<tr><td colSpan={isAdmin?5:4}>No company members found.</td></tr>}
+    </tbody></table></div>
+   </section>
+   {isAdmin&&members.some(m=>m.role==='employee')&&projectList.length>0&&<section className="panel"><div className="panel-heading"><div><h2>Assign employees to projects</h2><p>Set a company-level assignment so the employee appears in the combined deadline table.</p></div><UserCheck size={19}/></div>
+    <div className="company-inline-actions"><label>Project<select value={assignProjectId} onChange={e=>setAssignProjectId(e.target.value)}><option value="">Choose project…</option>{projectList.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>Employee<select value={assignEmployeeId} onChange={e=>setAssignEmployeeId(e.target.value)}><option value="">Choose employee…</option>{members.map(m=><option key={m.user_id} value={m.user_id}>{m.full_name} · {m.role}</option>)}</select></label><button className="primary compact" onClick={()=>void onAssign()} disabled={busy||!assignProjectId||!assignEmployeeId}><UserCheck size={14}/> Assign</button></div>
+    {assignments.length>0&&<div className="assignment-chips">{assignments.map(a=><span key={a.project_id+'-'+a.user_id}>{projectList.find(p=>p.id===a.project_id)?.name??'Project'} · {members.find(m=>m.user_id===a.user_id)?.full_name??'Member'}</span>)}</div>}
+   </section>}
+   {!isAdmin&&<p className="muted tiny company-readonly-note"><LockKeyhole size={13}/> Only company admins can edit the company profile, theme, member roles, project links, and assignments.</p>}
+ </section>
+}
+
+function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemove:()=>void}) {
+ const [name,setName]=useState(member.full_name)
+ const [job,setJob]=useState(member.job_title??'')
+ useEffect(()=>{setName(member.full_name);setJob(member.job_title??'')},[member.full_name,member.job_title])
+ const changed=name.trim()!==member.full_name||job!==(member.job_title??'')
+ return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td><td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
+}
+
+function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start:Date;end:Date;span:number}) {
+ const labels:string[]=[]
+ const first=new Date(start.getFullYear(),start.getMonth(),1)
+ for(let d=new Date(first);d<=end;d.setMonth(d.getMonth()+1))labels.push(d.toLocaleDateString(undefined,{month:'short',year:'2-digit'}))
+ const total=Math.max(1,span)
+ return <div className="company-gantt-section"><div className="company-gantt-head"><div><h3>Stage Gantt timeline</h3><p>Long-range company schedule, grouped by project and stage.</p></div><span>{start.toLocaleDateString(undefined,{month:'short',year:'numeric'})} — {end.toLocaleDateString(undefined,{month:'short',year:'numeric'})}</span></div>
+  <div className="company-gantt-scroll"><div className="company-gantt-canvas" style={{minWidth:Math.max(1000,labels.length*92)+'px'}}><div className="company-gantt-axis"><div className="company-gantt-name">Project / Stage</div><div className="company-gantt-track">{labels.map((label,i)=><span key={label+'-'+i} style={{left:(i/Math.max(1,labels.length))*100+'%'}}>{label}</span>)}</div></div>
+  {rows.map((row,index)=>{const a=row.stage_start?new Date(row.stage_start+'T00:00:00'):null,b=row.stage_end?new Date(row.stage_end+'T00:00:00'):a;let bar:{left:number;width:number}|null=null;if(a&&b){const left=(a.getTime()-start.getTime())/total*100,right=(b.getTime()-start.getTime())/total*100;bar={left:Math.max(0,Math.min(100,left)),width:Math.max(0.6,Math.min(100,right)-Math.max(0,left))}}return <div className="company-gantt-row" key={(row.project_id)+(row.stage_id??'')+'-'+index}><div className="company-gantt-name"><b>{row.project_name}</b><small>{row.stage_name??'No stage'}</small></div><div className="company-gantt-track">{bar?<span className="company-gantt-bar" style={{left:bar.left+'%',width:bar.width+'%'}} title={row.stage_name+' · '+(row.stage_start??'No start')+' to '+(row.stage_end??row.stage_start??'No deadline')}/>:<small className="company-gantt-undated">Dates not set</small>}</div></div>})}
+  </div></div>
+ </div>
 }
 
 function GlobalDashboard({projects,onOpenProject,onCreateProject}:{projects:Project[];onOpenProject:(id:string)=>void;onCreateProject:()=>void}) {
@@ -720,13 +1233,16 @@ function Analytics({ tasks }: { tasks: Task[] }) {
     </div>
   </section>
 }
-function Personalise({ prefs, save, profileName, setProfileName, email }: { prefs: typeof initialPrefs; save: (p: typeof initialPrefs)=>void; profileName: string; setProfileName: (s:string)=>void; email: string }) {
+function Personalise({ prefs, save, profileName, setProfileName, email, companyThemeLocked = false, onOpenCompany }: { prefs: typeof initialPrefs; save: (p: typeof initialPrefs)=>void; profileName: string; setProfileName: (s:string)=>void; email: string; companyThemeLocked?: boolean; onOpenCompany?: () => void }) {
   const [draft, setDraft] = useState(prefs)
   useEffect(()=>setDraft(prefs),[prefs])
   const update = (key: keyof typeof initialPrefs, value: string) => setDraft(current=>({ ...current, [key]: value }))
   const reset = () => { setDraft(initialPrefs); save(initialPrefs); setProfileName('') }
-  return <section className="panel settings-panel"><div className="panel-heading"><div><h2>Personalise your workspace</h2><p>Choose your colours and theme, preview them, then apply your changes.</p></div><Palette size={19}/></div><div className="settings-body"><h3>Profile</h3><div className="form-grid"><label>Display name<input value={profileName} onChange={e=>setProfileName(e.target.value)} placeholder={email.split('@')[0]} /></label><label>Email address<input value={email} readOnly /></label></div><h3>Appearance</h3><div className="settings-controls"><label>Background colour<input type="color" value={draft.bg} onChange={e=>update('bg',e.target.value)}/></label><label>Panel colour<input type="color" value={draft.panel} onChange={e=>update('panel',e.target.value)}/></label><label>Text colour<input type="color" value={draft.text} onChange={e=>update('text',e.target.value)}/></label><label>Accent colour<input type="color" value={draft.accent} onChange={e=>update('accent',e.target.value)}/></label><label>Text size<select value={draft.fontSize} onChange={e=>update('fontSize',e.target.value)}><option value="12">Small</option><option value="14">Default</option><option value="16">Large</option><option value="18">Extra large</option></select></label><label>Theme<select value={draft.mode} onChange={e=>update('mode',e.target.value)}><option value="dark">Dark</option><option value="light">Light</option></select></label></div><div className="preview-card" style={{background:draft.bg,color:draft.text,borderColor:draft.accent}}><div className="preview-heading"><span className="preview-dot" style={{background:draft.accent}}/> Live preview · not applied yet</div><div className="preview-surface" style={{background:draft.panel}}><b style={{color:draft.text}}>Your workspace, your style</b><p style={{color:draft.text}}>This is how panels and text will look.</p><button className="primary" style={{background:draft.accent,borderColor:draft.accent}}>Accent button</button></div></div><div className="settings-actions"><button className="outline-button" onClick={reset}><RefreshCw size={14}/> Reset appearance</button><button className="primary" onClick={()=>save(draft)}><Check size={15}/> Apply theme</button></div><p className="settings-save-note">Your theme is saved in this browser and will be restored when you return on this device.</p></div></section>
+  return <section className="panel settings-panel"><div className="panel-heading"><div><h2>Personalise your workspace</h2><p>Update your display name and personal preferences.</p></div><Palette size={19}/></div><div className="settings-body"><h3>Profile</h3><div className="form-grid"><label>Display name<input value={profileName} onChange={e=>setProfileName(e.target.value)} placeholder={email.split('@')[0]} /></label><label>Email address<input value={email} readOnly /></label></div>
+   {companyThemeLocked ? <div className="company-theme-locked"><h3>Company appearance</h3><p>Your active company controls the shared colors, logo, and preset for all company members. Only admins can change them; individual browser preferences cannot override company branding.</p><button type="button" className="outline-button" onClick={onOpenCompany}><Palette size={14}/> View company appearance</button></div> : <><h3>Appearance</h3><div className="settings-controls"><label>Background colour<input type="color" value={draft.bg} onChange={e=>update('bg',e.target.value)}/></label><label>Panel colour<input type="color" value={draft.panel} onChange={e=>update('panel',e.target.value)}/></label><label>Text colour<input type="color" value={draft.text} onChange={e=>update('text',e.target.value)}/></label><label>Accent colour<input type="color" value={draft.accent} onChange={e=>update('accent',e.target.value)}/></label><label>Text size<select value={draft.fontSize} onChange={e=>update('fontSize',e.target.value)}><option value="12">Small</option><option value="14">Default</option><option value="16">Large</option><option value="18">Extra large</option></select></label><label>Theme<select value={draft.mode} onChange={e=>update('mode',e.target.value)}><option value="dark">Dark</option><option value="light">Light</option></select></label></div><div className="preview-card" style={{background:draft.bg,color:draft.text,borderColor:draft.accent}}><div className="preview-heading"><span className="preview-dot" style={{background:draft.accent}}/> Live preview · not applied yet</div><div className="preview-surface" style={{background:draft.panel}}><b style={{color:draft.text}}>Your workspace, your style</b><p style={{color:draft.text}}>This is how panels and text will look.</p><button className="primary" style={{background:draft.accent,borderColor:draft.accent}}>Accent button</button></div></div><div className="settings-actions"><button className="outline-button" onClick={reset}><RefreshCw size={14}/> Reset appearance</button><button className="primary" onClick={()=>save(draft)}><Check size={15}/> Apply theme</button></div><p className="settings-save-note">Your personal theme is saved in this browser and will be restored when you return on this device.</p></>}
+  </div></section>
 }
+
 function SetupScreen() {
   return <main className="setup-shell"><div className="setup-card"><div className="brand-mark"><Command size={21}/></div><span className="eyebrow">ALMOST THERE</span><h1>Connect your workspace</h1><p>ProjectHub is ready to run. Add your free Supabase project credentials to connect sign-in, projects, and secure team data.</p><ol><li>Create a project at <a href="https://supabase.com" target="_blank" rel="noreferrer">supabase.com</a>.</li><li>Run the SQL in <code>supabase/schema.sql</code> using the Supabase SQL Editor.</li><li>Copy <code>.env.example</code> to <code>.env.local</code> and fill in your Project URL and publishable/anon key.</li><li>Run <code>npm install</code> and <code>npm run dev</code>.</li></ol><div className="setup-warning"><LockKeyhole size={16}/> Never put your Supabase service-role key in frontend code.</div><p className="muted tiny">After configuring the environment, refresh this page.</p></div></main>
 }
