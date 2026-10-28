@@ -67,66 +67,81 @@ alter table public.company_projects enable row level security;
 alter table public.company_project_assignments enable row level security;
 alter table public.company_invitations enable row level security;
 
+-- SECURITY DEFINER helpers avoid recursive RLS references when policies check company membership.
+create or replace function public.is_company_member(target_company uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $
+  select exists (select 1 from public.company_members m where m.company_id = target_company and m.user_id = (select auth.uid()))
+$;
+create or replace function public.is_company_admin(target_company uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $
+  select exists (select 1 from public.company_members m where m.company_id = target_company and m.user_id = (select auth.uid()) and m.role = 'admin')
+$;
+revoke all on function public.is_company_member(uuid) from public;
+revoke all on function public.is_company_admin(uuid) from public;
+grant execute on function public.is_company_member(uuid), public.is_company_admin(uuid) to authenticated;
+
 drop policy if exists "Company members can read their companies" on public.companies;
 create policy "Company members can read their companies" on public.companies
   for select to authenticated using (
-    exists (select 1 from public.company_members m where m.company_id = companies.id and m.user_id = (select auth.uid()))
+    public.is_company_member(companies.id)
   );
 
 drop policy if exists "Company admins can update company profile" on public.companies;
 create policy "Company admins can update company profile" on public.companies
   for update to authenticated using (
-    exists (select 1 from public.company_members m where m.company_id = companies.id and m.user_id = (select auth.uid()) and m.role = 'admin')
+    public.is_company_admin(companies.id)
   ) with check (
-    exists (select 1 from public.company_members m where m.company_id = companies.id and m.user_id = (select auth.uid()) and m.role = 'admin')
+    public.is_company_admin(companies.id)
   );
 
 drop policy if exists "Company members can read their company roster" on public.company_members;
 create policy "Company members can read their company roster" on public.company_members
   for select to authenticated using (
-    exists (select 1 from public.company_members viewer where viewer.company_id = company_members.company_id and viewer.user_id = (select auth.uid()))
+    public.is_company_member(company_members.company_id)
   );
 
 drop policy if exists "Company admins can update member records" on public.company_members;
 create policy "Company admins can update member records" on public.company_members
   for update to authenticated using (
-    exists (select 1 from public.company_members admin_member where admin_member.company_id = company_members.company_id and admin_member.user_id = (select auth.uid()) and admin_member.role = 'admin')
+    public.is_company_admin(company_members.company_id)
     and company_members.user_id <> (select auth.uid())
   ) with check (
-    exists (select 1 from public.company_members admin_member where admin_member.company_id = company_members.company_id and admin_member.user_id = (select auth.uid()) and admin_member.role = 'admin')
+    public.is_company_admin(company_members.company_id)
   );
 
 drop policy if exists "Company admins can remove other members" on public.company_members;
 create policy "Company admins can remove other members" on public.company_members
   for delete to authenticated using (
-    exists (select 1 from public.company_members admin_member where admin_member.company_id = company_members.company_id and admin_member.user_id = (select auth.uid()) and admin_member.role = 'admin')
+    public.is_company_admin(company_members.company_id)
     and company_members.user_id <> (select auth.uid())
   );
 
 drop policy if exists "Company members can view linked projects" on public.company_projects;
 create policy "Company members can view linked projects" on public.company_projects
   for select to authenticated using (
-    exists (select 1 from public.company_members m where m.company_id = company_projects.company_id and m.user_id = (select auth.uid()))
+    public.is_company_member(company_projects.company_id)
   );
 
 drop policy if exists "Company members can view project assignments" on public.company_project_assignments;
 create policy "Company members can view project assignments" on public.company_project_assignments
   for select to authenticated using (
-    exists (select 1 from public.company_members m where m.company_id = company_project_assignments.company_id and m.user_id = (select auth.uid()))
+    public.is_company_member(company_project_assignments.company_id)
   );
 
 drop policy if exists "Company admins can manage project assignments" on public.company_project_assignments;
 create policy "Company admins can manage project assignments" on public.company_project_assignments
   for all to authenticated using (
-    exists (select 1 from public.company_members m where m.company_id = company_project_assignments.company_id and m.user_id = (select auth.uid()) and m.role = 'admin')
+    public.is_company_admin(company_project_assignments.company_id)
   ) with check (
-    exists (select 1 from public.company_members m where m.company_id = company_project_assignments.company_id and m.user_id = (select auth.uid()) and m.role = 'admin')
+    public.is_company_admin(company_project_assignments.company_id)
   );
 
 drop policy if exists "Company admins can view invitations" on public.company_invitations;
 create policy "Company admins can view invitations" on public.company_invitations
   for select to authenticated using (
-    exists (select 1 from public.company_members m where m.company_id = company_invitations.company_id and m.user_id = (select auth.uid()) and m.role = 'admin')
+    public.is_company_admin(company_invitations.company_id)
   );
 
 grant select on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to authenticated;
