@@ -682,3 +682,6 @@
 }
 
 .company-phone-input { min-width:145px; }
+
+.company-whatsapp-optin { display:flex; align-items:center; gap:5px; margin-top:5px; color:var(--company-muted); font-size:9px; font-weight:600; white-space:nowrap; }
+.company-whatsapp-optin input { width:12px; height:12px; accent-color:var(--company-accent); }
