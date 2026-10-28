@@ -165,6 +165,10 @@ export default function App() {
     if (selectedCompany?.slug) setCompanySlug(selectedCompany.slug)
   }, [selectedCompany?.id])
   useEffect(() => {
+    if (!session?.user) return
+    try { localStorage.setItem('projecthub-selected-workspace-id', selectedCompanyId ?? 'personal') } catch { /* ignore storage */ }
+  }, [selectedCompanyId, session?.user?.id])
+  useEffect(() => {
     if (!session?.user && !new URLSearchParams(window.location.search).get('company')) {
       setCompanySlug('')
       setInvitedBrand(null)
@@ -209,7 +213,12 @@ export default function App() {
     setSelectedCompanyId(current => {
       if (current && rows.some(company => company.id === current)) return current
       const fromInvite = rows.find(company => company.slug === companySlug)
-      return fromInvite?.id ?? rows[0]?.id ?? null
+      let storedWorkspace = ''
+      try { storedWorkspace = localStorage.getItem('projecthub-selected-workspace-id') ?? '' } catch { /* ignore storage */ }
+      const fromStored = rows.find(company => company.id === storedWorkspace)
+      if (fromInvite) return fromInvite.id
+      if (storedWorkspace === 'personal') return null
+      return fromStored?.id ?? rows[0]?.id ?? null
     })
   }
   async function loadCompanyData(companyId: string) {
