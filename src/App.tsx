@@ -23,7 +23,7 @@ type Member = { user_id: string; role: Role; joined_at: string; email?: string }
 type CompanyRole = 'admin' | 'employee'
 type CompanyTheme = { preset: string; bg: string; panel: string; panel2: string; text: string; muted: string; border: string; accent: string; accent2: string }
 type Company = { id: string; name: string; slug: string; logo_url: string | null; theme: CompanyTheme; created_by: string; role?: CompanyRole }
-type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; phone_e164?: string | null; joined_at: string }
+type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; phone_e164?: string | null; whatsapp_opted_in?: boolean; joined_at: string }
 type CompanyProjectRow = { project_id: string; project_name: string; project_description: string | null; stage_id: string | null; stage_name: string | null; stage_start: string | null; stage_end: string | null; stage_order: number; assigned_employees: string[] }
 type CompanyAssignment = { company_id: string; project_id: string; user_id: string; assigned_by: string; assigned_at: string }
 type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'work_from_home'; started_at: string; editable_until: string; frozen_at: string | null }
@@ -228,13 +228,13 @@ export default function App() {
     ])
     if (membersResult.error) setNotice('Could not load employee details: ' + membersResult.error.message)
     else {
-      let contacts: {user_id:string;phone_e164:string}[]=[]
+      let contacts: {user_id:string;phone_e164:string;whatsapp_opted_in:boolean}[]=[]
       if (companies.find(company=>company.id===companyId)?.role==='admin') {
-        const {data:contactRows,error:contactError}=await supabase.from('company_member_contacts').select('user_id,phone_e164').eq('company_id',companyId)
+        const {data:contactRows,error:contactError}=await supabase.from('company_member_contacts').select('user_id,phone_e164,whatsapp_opted_in').eq('company_id',companyId)
         if (contactError) setNotice('Employee WhatsApp numbers need the weekly_work_dashboard.sql migration: '+contactError.message)
-        else contacts=(contactRows??[]) as {user_id:string;phone_e164:string}[]
+        else contacts=(contactRows??[]) as {user_id:string;phone_e164:string;whatsapp_opted_in:boolean}[]
       }
-      setCompanyMembers(((membersResult.data ?? []) as CompanyMember[]).map(member=>({...member,phone_e164:contacts.find(contact=>contact.user_id===member.user_id)?.phone_e164??null})))
+      setCompanyMembers(((membersResult.data ?? []) as CompanyMember[]).map(member=>({...member,phone_e164:contacts.find(contact=>contact.user_id===member.user_id)?.phone_e164??null,whatsapp_opted_in:contacts.find(contact=>contact.user_id===member.user_id)?.whatsapp_opted_in??false})))
     }
     if (projectsResult.error) setNotice('Could not load company deadlines: ' + projectsResult.error.message)
     else setCompanyRows((projectsResult.data ?? []) as CompanyProjectRow[])
@@ -336,17 +336,17 @@ export default function App() {
   }
   async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title' | 'phone_e164'>>) {
     if (!supabase || !selectedCompany || !isCompanyAdmin) return
-    const { phone_e164, ...profilePatch } = patch
+    const { phone_e164, whatsapp_opted_in, ...profilePatch } = patch
     if (member.user_id === session.user.id && Object.keys(profilePatch).length) return
     if (Object.keys(profilePatch).length) {
       const { error } = await supabase.from('company_members').update(profilePatch).eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
       if (error) { setNotice('Could not update employee: ' + error.message); return }
     }
-    if (phone_e164 !== undefined) {
-      const phone = (phone_e164 ?? '').trim()
+    if (phone_e164 !== undefined || whatsapp_opted_in !== undefined) {
+      const phone = (phone_e164 !== undefined ? (phone_e164 ?? '') : (member.phone_e164 ?? '')).trim()
       if (phone && !/^\+[1-9][0-9]{7,14}$/.test(phone)) { setNotice('Enter the WhatsApp number in international E.164 format, e.g. +919876543210.'); return }
       const result = phone
-        ? await supabase.from('company_member_contacts').upsert({company_id:selectedCompany.id,user_id:member.user_id,phone_e164:phone,updated_by:session.user.id,updated_at:new Date().toISOString()},{onConflict:'company_id,user_id'})
+        ? await supabase.from('company_member_contacts').upsert({company_id:selectedCompany.id,user_id:member.user_id,phone_e164:phone,whatsapp_opted_in:whatsapp_opted_in ?? member.whatsapp_opted_in ?? false,updated_by:session.user.id,updated_at:new Date().toISOString()},{onConflict:'company_id,user_id'})
         : await supabase.from('company_member_contacts').delete().eq('company_id',selectedCompany.id).eq('user_id',member.user_id)
       if (result.error) { setNotice('Could not save WhatsApp number: '+result.error.message); return }
     }
@@ -932,7 +932,7 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;
  onSave:(patch:Partial<Pick<Company,'name'|'logo_url'|'theme'>>)=>Promise<void>;onLogoUpload:(file:File)=>Promise<void>;
  onInvite:(e:FormEvent)=>void;onLinkProject:()=>Promise<void>;onUnlinkProject:(id:string)=>Promise<void>;onAssign:()=>Promise<void>;
- onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
+ onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'|'whatsapp_opted_in'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
  linkProjectId:string;setLinkProjectId:(id:string)=>void;inviteEmail:string;setInviteEmail:(email:string)=>void;inviteRole:CompanyRole;setInviteRole:(role:CompanyRole)=>void;assignProjectId:string;setAssignProjectId:(id:string)=>void;assignEmployeeId:string;setAssignEmployeeId:(id:string)=>void;
 }) {
  const [name,setName]=useState(company.name)
@@ -996,14 +996,15 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  </section>
 }
 
-function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'>>)=>Promise<void>;onRemove:()=>void}) {
+function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'|'whatsapp_opted_in'>>)=>Promise<void>;onRemove:()=>void}) {
  const [name,setName]=useState(member.full_name)
  const [job,setJob]=useState(member.job_title??'')
  const [phone,setPhone]=useState(member.phone_e164??'')
- useEffect(()=>{setName(member.full_name);setJob(member.job_title??'');setPhone(member.phone_e164??'')},[member.full_name,member.job_title,member.phone_e164])
+ const [optedIn,setOptedIn]=useState(member.whatsapp_opted_in??false)
+ useEffect(()=>{setName(member.full_name);setJob(member.job_title??'');setPhone(member.phone_e164??'');setOptedIn(member.whatsapp_opted_in??false)},[member.full_name,member.job_title,member.phone_e164,member.whatsapp_opted_in])
  const changed=name.trim()!==member.full_name||job!==(member.job_title??'')
  const phoneChanged=phone.trim()!==(member.phone_e164??'')
- return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td>{isAdmin&&<td><input className="company-cell-input company-phone-input" aria-label="WhatsApp number in international format" value={phone} placeholder="+919876543210" onChange={e=>setPhone(e.target.value)} onBlur={()=>{if(phoneChanged)void onSave({phone_e164:phone.trim()})}}/></td>}<td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
+ return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td>{isAdmin&&<td><input className="company-cell-input company-phone-input" aria-label="WhatsApp number in international format" value={phone} placeholder="+919876543210" onChange={e=>setPhone(e.target.value)} onBlur={()=>{if(phoneChanged)void onSave({phone_e164:phone.trim(),whatsapp_opted_in:optedIn})}}/>{<label className="company-whatsapp-optin"><input type="checkbox" checked={optedIn} disabled={!phone.trim()} onChange={e=>{setOptedIn(e.target.checked);void onSave({phone_e164:phone.trim(),whatsapp_opted_in:e.target.checked})}}/> Consent recorded</label>}</td>}<td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
 }
 
 function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start:Date;end:Date;span:number}) {
