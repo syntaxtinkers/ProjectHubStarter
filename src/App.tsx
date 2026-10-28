@@ -726,7 +726,7 @@ export default function App() {
     {showCreate&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowCreate(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">NEW WORKSPACE</span><h2>Create a project</h2><p>Give your team a dedicated place to work together.</p></div><button className="icon-button" onClick={()=>setShowCreate(false)}><X size={18}/></button></div><form onSubmit={createProject} className="form-stack"><label>Project name<input autoFocus value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="e.g. Website redesign" maxLength={80} required/></label><label>Description <span className="optional">(optional)</span><textarea value={projectDescription} onChange={e=>setProjectDescription(e.target.value)} placeholder="What is this project about?" rows={3} maxLength={500}/></label><div className="modal-note"><LockKeyhole size={15}/> Your new project starts private.</div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowCreate(false)}>Cancel</button><button className="primary" disabled={busy||!projectName.trim()}><Plus size={16}/>{busy?'Creating…':'Create project'}</button></div></form></section></div>}
     {showProjectEdit&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowProjectEdit(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT SETTINGS</span><h2>Edit project</h2><p>Rename this project or update its description.</p></div><button type="button" className="icon-button" onClick={()=>setShowProjectEdit(false)}><X size={18}/></button></div><form onSubmit={updateProject} className="form-stack"><label>Project name<input autoFocus value={editProjectName} onChange={e=>setEditProjectName(e.target.value)} maxLength={80} required/></label><label>Description<textarea value={editProjectDescription} onChange={e=>setEditProjectDescription(e.target.value)} rows={3} maxLength={500}/></label><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowProjectEdit(false)}>Cancel</button><button className="primary" disabled={busy||!editProjectName.trim()}><Check size={15}/> Save project</button></div></form></section></div>}
     {showStage&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowStage(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT STAGE</span><h2>{editingStage?'Edit stage':'Create a stage'}</h2><p>Stages group related tasks and summarize their progress.</p></div><button type="button" className="icon-button" onClick={()=>setShowStage(false)}><X size={18}/></button></div><form onSubmit={saveStage} className="form-stack"><label>Stage name<input autoFocus value={stageName} onChange={e=>setStageName(e.target.value)} placeholder="e.g. Flooring" maxLength={160} required/></label><label>Description<textarea value={stageDescription} onChange={e=>setStageDescription(e.target.value)} rows={3} maxLength={5000} placeholder="Describe the purpose or scope of this stage."/></label><div className="form-grid"><label>Stage start date<input type="date" value={stageStart} max={stageEnd||undefined} onChange={e=>setStageStart(e.target.value)}/></label><label>Stage end date<input type="date" value={stageEnd} min={stageStart||undefined} onChange={e=>setStageEnd(e.target.value)}/></label></div><p className="muted tiny">Tasks must stay within the stage date range. Leave a boundary blank if it is not defined.</p><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowStage(false)}>Cancel</button><button className="primary" disabled={busy||!stageName.trim()}><Check size={15}/>{busy?'Saving…':editingStage?'Save changes':'Create stage'}</button></div></form></section></div>}
-    {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal task-edit-modal"><div className="modal-head"><div><span className="eyebrow">STAGE TASK</span><h2>{editingTask?'Edit task':'Add a task'}</h2><p>{selectedStage?.name ?? stages.find(s=>s.id===taskStageId)?.name ?? 'Stage'} · update dates, details, status and comments any time.</p></div><button type="button" className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={saveTask} className="form-stack"><label>Task name<input autoFocus disabled={!canEdit(selected.role)} value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Lay tiles" maxLength={160} required/></label><label>Description<textarea disabled={!canEdit(selected.role)} value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={3} maxLength={5000} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Status<select disabled={!canEdit(selected.role)} value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To be started</option><option value="in_progress">Ongoing</option><option value="done">Completed</option></select></label><label>Priority<select disabled={!canEdit(selected.role)} value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input disabled={!canEdit(selected.role)} type="date" value={taskStart} min={stages.find(s=>s.id===taskStageId)?.start_date||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskStart(e.target.value)}/></label><label>End date<input disabled={!canEdit(selected.role)} type="date" value={taskDue} min={[taskStart,stages.find(s=>s.id===taskStageId)?.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Close</button>{canEdit(selected.role)&&<button className="primary" disabled={busy||!taskTitle.trim()}><Check size={15}/>{busy?'Saving…':editingTask?'Save task':'Create task'}</button>}{editingTask&&canEdit(selected.role)&&<button type="button" className="outline-button danger-button" onClick={()=>deleteTask(editingTask)}><Trash2 size={14}/> Delete task</button>}</div></form>{editingTask&&<div className="task-modal-comments"><CommentThread title="Task comments" comments={taskComments} canComment={canComment(selected.role)} canManage={canEdit(selected.role)} currentUserId={session.user.id} commentText={taskCommentText} setCommentText={setTaskCommentText} busy={busy} onSubmit={addTaskComment} onEdit={comment=>editThreadComment('task',comment)} onDelete={comment=>deleteThreadComment('task',comment)} placeholder="Comment on this task…"/></div>}</section></div>}
+    {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal task-edit-modal"><div className="modal-head"><div><span className="eyebrow">STAGE TASK</span><h2>{editingTask?'Edit task':'Add a task'}</h2><p>{selectedStage?.name ?? stages.find(s=>s.id===taskStageId)?.name ?? 'Stage'} · update dates, details, status and comments any time.</p></div><button type="button" className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={saveTask} className="form-stack"><label>Task name<input autoFocus disabled={!canEdit(selected.role)} value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Lay tiles" maxLength={160} required/></label><label>Description<textarea disabled={!canEdit(selected.role)} value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={3} maxLength={5000} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Assigned to<select disabled={!canEdit(selected.role)} value={taskAssigneeId} onChange={e=>setTaskAssigneeId(e.target.value)}><option value="">Unassigned</option>{members.map(member=><option key={member.user_id} value={member.user_id}>{companyMembers.find(cm=>cm.user_id===member.user_id)?.full_name || companyMembers.find(cm=>cm.user_id===member.user_id)?.email || (member.user_id===session.user.id?'You':'Member '+member.user_id.slice(0,8))}</option>)}</select></label><label>Status<select disabled={!canEdit(selected.role)} value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To be started</option><option value="in_progress">Ongoing</option><option value="done">Completed</option></select></label><label>Priority<select disabled={!canEdit(selected.role)} value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input disabled={!canEdit(selected.role)} type="date" value={taskStart} min={stages.find(s=>s.id===taskStageId)?.start_date||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskStart(e.target.value)}/></label><label>End date<input disabled={!canEdit(selected.role)} type="date" value={taskDue} min={[taskStart,stages.find(s=>s.id===taskStageId)?.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Close</button>{canEdit(selected.role)&&<button className="primary" disabled={busy||!taskTitle.trim()}><Check size={15}/>{busy?'Saving…':editingTask?'Save task':'Create task'}</button>}{editingTask&&canEdit(selected.role)&&<button type="button" className="outline-button danger-button" onClick={()=>deleteTask(editingTask)}><Trash2 size={14}/> Delete task</button>}</div></form>{editingTask&&<div className="task-modal-comments"><CommentThread title="Task comments" comments={taskComments} canComment={canComment(selected.role)} canManage={canEdit(selected.role)} currentUserId={session.user.id} commentText={taskCommentText} setCommentText={setTaskCommentText} busy={busy} onSubmit={addTaskComment} onEdit={comment=>editThreadComment('task',comment)} onDelete={comment=>deleteThreadComment('task',comment)} placeholder="Comment on this task…"/></div>}</section></div>}
   </div>
 }
 
@@ -991,7 +991,101 @@ function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start
  </div>
 }
 
-function GlobalDashboard({projects,onOpenProject,onCreateProject}:{projects:Project[];onOpenProject:(id:string)=>void;onCreateProject:()=>void}) {
+
+type DailyWorkStatus = 'not_started' | 'ongoing' | 'completed'
+type DailyWorkUpdate = { id:string; task_id:string; user_id:string; work_date:string; week_start:string; status:DailyWorkStatus; updated_at:string }
+function localIsoDate(date:Date) { return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0') }
+function mondayOf(date:Date) { const d=new Date(date.getFullYear(),date.getMonth(),date.getDate());const day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d }
+function shiftIsoDate(iso:string,days:number) { const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+days);return localIsoDate(d) }
+function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers,onOpenProject}:{projects:Project[];tasks:Task[];stages:Stage[];currentUserId:string;companyMembers:CompanyMember[];onOpenProject:(id:string)=>void}) {
+  const today=localIsoDate(new Date()),weekStart=localIsoDate(mondayOf(new Date())),weekEnd=shiftIsoDate(weekStart,5)
+  const [view,setView]=useState<'assigned_to_you'|'assigned_by_you'>('assigned_to_you')
+  const [updates,setUpdates]=useState<DailyWorkUpdate[]>([]),[saving,setSaving]=useState<string|null>(null),[error,setError]=useState(''),[loaded,setLoaded]=useState(false)
+  const projectById=useMemo(()=>new Map(projects.map(p=>[p.id,p])),[projects]),stageById=useMemo(()=>new Map(stages.map(s=>[s.id,s])),[stages])
+  const updateKey=(taskId:string,date:string)=>taskId+'|'+date
+  const updateMap=useMemo(()=>new Map(updates.map(u=>[updateKey(u.task_id,u.work_date),u.status])),[updates])
+  const assignedToMe=useMemo(()=>tasks.filter(t=>t.assigned_to_user_id===currentUserId),[tasks,currentUserId])
+  const assignedByMe=useMemo(()=>tasks.filter(t=>t.assigned_by_user_id===currentUserId&&t.assigned_to_user_id&&t.assigned_to_user_id!==currentUserId),[tasks,currentUserId])
+  const currentList=view==='assigned_to_you'?assignedToMe:assignedByMe
+  const weekTasks=useMemo(()=>currentList.filter(t=>{
+    if(!t.start_date&&!t.due_date)return false
+    const start=t.start_date??t.due_date??'9999-12-31',end=t.due_date??t.start_date??'0000-01-01'
+    if(t.status==='done'&&end<weekStart)return false
+    return start<=weekEnd&&(end>=weekStart||(t.status!=='done'&&end<weekStart))
+  }),[currentList,weekStart,weekEnd])
+  const scheduledDate=(task:Task)=>task.due_date&&task.due_date>=weekStart&&task.due_date<=weekEnd?task.due_date:task.start_date&&task.start_date>=weekStart&&task.start_date<=weekEnd?task.start_date:(task.due_date??task.start_date??'')<weekStart?weekStart:weekStart
+  const weekTaskIds=weekTasks.map(t=>t.id)
+  useEffect(()=>{
+    let alive=true
+    async function load(){
+      if(!supabase||!weekTaskIds.length){setUpdates([]);setLoaded(true);return}
+      setLoaded(false);setError('')
+      const {data,error:readError}=await supabase.from('task_daily_updates').select('*').eq('user_id',currentUserId).eq('week_start',weekStart).in('task_id',weekTaskIds)
+      if(!alive)return
+      if(readError){setError(readError.message);setUpdates([])}else setUpdates((data??[]) as DailyWorkUpdate[])
+      setLoaded(true)
+    }
+    void load();return()=>{alive=false}
+  },[currentUserId,weekStart,weekTaskIds.join('|')])
+  useEffect(()=>{
+    if(!loaded||!supabase||view!=='assigned_to_you')return
+    let cancelled=false
+    async function markPastDays(){
+      const missing:{task_id:string;user_id:string;work_date:string;week_start:string;status:DailyWorkStatus;updated_by:string}[]=[]
+      for(const task of weekTasks)for(let offset=0;offset<6;offset++){
+        const date=shiftIsoDate(weekStart,offset)
+        if(date>=today||date<scheduledDate(task))continue
+        if(!updates.some(u=>u.task_id===task.id&&u.work_date===date))missing.push({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status:'not_started',updated_by:currentUserId})
+      }
+      if(missing.length&&!cancelled){
+        const {data,error:writeError}=await supabase!.from('task_daily_updates').upsert(missing,{onConflict:'task_id,user_id,work_date'}).select('*')
+        if(cancelled)return
+        if(writeError){setError(writeError.message);return}
+        if(data?.length)setUpdates(old=>[...old,...(data as DailyWorkUpdate[]).filter(n=>!old.some(o=>o.id===n.id))])
+      }
+    }
+    void markPastDays();return()=>{cancelled=true}
+  },[loaded,view,weekStart,today,weekTasks.map(t=>t.id).join('|'),updates.map(u=>u.task_id+'|'+u.work_date).join(';'),currentUserId])
+  const setStatus=async(task:Task,date:string,status:DailyWorkStatus)=>{
+    if(!supabase||view!=='assigned_to_you')return
+    const key=updateKey(task.id,date);setSaving(key);setError('')
+    const {data,error:writeError}=await supabase.from('task_daily_updates').upsert({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status,updated_by:currentUserId},{onConflict:'task_id,user_id,work_date'}).select('*').single()
+    if(writeError)setError(writeError.message);else setUpdates(old=>[...old.filter(u=>!(u.task_id===task.id&&u.work_date===date)),data as DailyWorkUpdate])
+    setSaving(null)
+  }
+  const statusAt=(task:Task,date:string):DailyWorkStatus=>task.status==='done'?'completed':updateMap.get(updateKey(task.id,date))??'not_started'
+  const wasCompletedBefore=(task:Task,date:string)=>task.status==='done'||updates.some(u=>u.task_id===task.id&&u.work_date<=date&&u.status==='completed')
+  const taskIsOnDay=(task:Task,date:string)=>date>=scheduledDate(task)&&date<=weekEnd&&!wasCompletedBefore(task,shiftIsoDate(date,-1))
+  const total=weekTasks.length,completed=weekTasks.filter(task=>task.status==='done'||updates.some(u=>u.task_id===task.id&&u.week_start===weekStart&&u.status==='completed')).length
+  const efficiency=total?Math.round(completed/total*100):100
+  const nameFor=(task:Task)=>{if(task.assigned_to_user_id===currentUserId)return 'You';const member=companyMembers.find(m=>m.user_id===task.assigned_to_user_id);return member?.full_name||member?.email||task.assigned_to_name||('Member '+(task.assigned_to_user_id??'').slice(0,8))}
+  const displayFor=(task:Task)=>({project:projectById.get(task.project_id)?.name??'Project',stage:stageById.get(task.stage_id)?.name??'Stage'})
+  const days=Array.from({length:6},(_,i)=>shiftIsoDate(weekStart,i)),dayName=(iso:string)=>new Date(iso+'T12:00:00').toLocaleDateString(undefined,{weekday:'long'}),dateShort=(iso:string)=>new Date(iso+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})
+  const dayTasks=(date:string)=>weekTasks.filter(task=>taskIsOnDay(task,date)).sort((a,b)=>(a.due_date??a.start_date??'9999').localeCompare(b.due_date??b.start_date??'9999'))
+  const projectGroups=Array.from(new Map(weekTasks.map(task=>[task.project_id,{id:task.project_id,name:projectById.get(task.project_id)?.name??'Project'}])).values())
+  return <section className="weekly-work panel">
+    <div className="weekly-work-heading"><div><span className="eyebrow">THIS WEEK · {dateShort(weekStart)} – {dateShort(weekEnd)}</span><h2>Work planner</h2><p>Only your assignments appear here. Unfinished work carries forward each day.</p></div><div className="weekly-efficiency"><b>{efficiency}%</b><small>Weekly completion</small><span>{completed}/{total} work items</span></div></div>
+    <div className="weekly-work-tabs"><button className={view==='assigned_to_you'?'selected':''} onClick={()=>setView('assigned_to_you')}>Work assigned to you</button><button className={view==='assigned_by_you'?'selected':''} onClick={()=>setView('assigned_by_you')}>Work you assigned</button><span className="weekly-work-week">Resets Monday · Mon–Sat</span></div>
+    {error&&<p className="weekly-work-error">Weekly tracking needs the latest migration, or access was denied: {error}</p>}
+    {projectGroups.length>0&&<div className="weekly-project-grid">{projectGroups.map(group=><article className="weekly-project-card" key={group.id}><button className="weekly-project-title" onClick={()=>onOpenProject(group.id)}>{group.name}<ArrowUpRight size={14}/></button><ul>{weekTasks.filter(t=>t.project_id===group.id).map(task=><li key={task.id}><span className={'weekly-mini-status '+statusAt(task,scheduledDate(task))}/><span>{task.title}<small>{task.due_date?'Due '+dateShort(task.due_date):task.start_date?'Starts '+dateShort(task.start_date):'Carryover'} · {displayFor(task).stage}</small></span><b>{task.status==='done'?'Done':task.due_date&&task.due_date<today?'Overdue':statusAt(task,scheduledDate(task))==='ongoing'?'Ongoing':'Pending'}</b></li>)}</ul></article>)}</div>}
+    <div className="weekly-day-list"><div className="weekly-day-heading"><h3>Daily work list</h3><span>Past unmarked days become “Not started” automatically.</span></div><div className="weekly-day-grid">{days.map(date=>{
+      const items=dayTasks(date)
+      return <section className={'weekly-day-card '+(date===today?'today':'')} key={date}><header><b>{dayName(date)}</b><span>{dateShort(date)}</span></header>
+        {items.length===0?<p className="weekly-day-empty">No work scheduled</p>:items.map(task=>{
+          const st=statusAt(task,date),info=displayFor(task),key=updateKey(task.id,date),readOnly=view==='assigned_by_you'||date>today||task.status==='done'
+          return <article className="weekly-day-task" key={task.id}><div className="weekly-task-meta"><b>{info.project}</b><small>{info.stage}{task.due_date?' · Due '+dateShort(task.due_date):''}</small></div><div className="weekly-task-name">{task.title}</div>{view==='assigned_by_you'&&<div className="weekly-assignee">Assigned to: {nameFor(task)}</div>}
+            <div className="weekly-task-status"><select aria-label={'Status for '+task.title+' on '+date} disabled={readOnly||saving===key} value={st} onChange={e=>void setStatus(task,date,e.target.value as DailyWorkStatus)}><option value="not_started">Not started</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option></select>{saving===key&&<LoaderCircle size={13} className="spin"/>}</div>
+            {date<today&&st==='not_started'&&<small className="weekly-carry-note">Carried forward</small>}
+          </article>
+        })}
+      </section>
+    })}</div></div>
+    {!weekTasks.length&&<div className="weekly-empty"><CalendarDays size={20}/><span>No assigned work falls within this week yet. Add dates and assign tasks to project members to populate this planner.</span></div>}
+    {!loaded&&<small className="muted">Loading daily updates…</small>}
+  </section>
+}
+
+function GlobalDashboard({projects,currentUserId,currentUserEmail,companyMembers,onOpenProject,onCreateProject}:{projects:Project[];currentUserId:string;currentUserEmail:string;companyMembers:CompanyMember[];onOpenProject:(id:string)=>void;onCreateProject:()=>void}) {
   const [stages,setStages]=useState<Stage[]>([])
   const [tasks,setTasks]=useState<Task[]>([])
   const [loading,setLoading]=useState(true)
@@ -1012,6 +1106,7 @@ function GlobalDashboard({projects,onOpenProject,onCreateProject}:{projects:Proj
   },[projects.map(p=>p.id).join('|')])
   return <section className="global-dashboard">
     <div className="dashboard-welcome"><div><span className="eyebrow"><span className="live-dot"/> CKPC PROJECT HUB</span><h1>Your projects, <span>at a glance.</span></h1><p>Track every stage and see ongoing, pending and completed work across your projects.</p></div><button className="primary" onClick={onCreateProject}><Plus size={16}/> New project</button></div>
+    <WeeklyWorkDashboard projects={projects} tasks={tasks} stages={stages} currentUserId={currentUserId} companyMembers={companyMembers} onOpenProject={onOpenProject}/>
     <div className="dashboard-summary"><div><span>PROJECTS</span><b>{projects.length}</b></div><div><span>ACTIVE TASKS</span><b>{tasks.filter(t=>t.status==='in_progress').length}</b></div><div><span>PENDING TASKS</span><b>{tasks.filter(t=>t.status==='todo').length}</b></div><div><span>COMPLETED</span><b>{tasks.filter(t=>t.status==='done').length}</b></div></div>
     {loading?<div className="panel dashboard-loading"><LoaderCircle className="spin"/> Loading project summaries…</div>:projects.length===0?<div className="panel dashboard-empty"><FolderKanban size={28}/><h2>No projects yet</h2><p>Create your first project to see stages and task progress here.</p><button className="primary" onClick={onCreateProject}><Plus size={16}/> Create project</button></div>:<div className="dashboard-project-grid">{projects.map((project,index)=>{
       const ps=stages.filter(s=>s.project_id===project.id),pt=tasks.filter(t=>t.project_id===project.id),done=pt.filter(t=>t.status==='done').length,pct=pt.length?Math.round(done/pt.length*100):0
