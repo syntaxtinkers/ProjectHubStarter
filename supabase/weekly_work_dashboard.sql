@@ -135,3 +135,63 @@ drop trigger if exists project_tasks_guard_assignment_users on public.project_ta
 create trigger project_tasks_guard_assignment_users
 before insert or update of project_id, assigned_to_user_id, assigned_by_user_id on public.project_tasks
 for each row execute function public.guard_task_assignment_users();
+
+
+-- Private contact data: only company admins can view/edit employee WhatsApp numbers.
+create table if not exists public.company_member_contacts (
+  company_id uuid not null references public.companies(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  phone_e164 text not null check (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id) on delete set null,
+  primary key (company_id,user_id),
+  foreign key (company_id,user_id) references public.company_members(company_id,user_id) on delete cascade
+);
+alter table public.company_member_contacts enable row level security;
+drop policy if exists "Company admins manage private member contacts" on public.company_member_contacts;
+create policy "Company admins manage private member contacts"
+on public.company_member_contacts for all to authenticated
+using (public.is_company_admin(company_id))
+with check (public.is_company_admin(company_id));
+grant select,insert,update,delete on public.company_member_contacts to authenticated;
+grant all privileges on public.company_member_contacts to service_role;
+
+grant select,insert,update on public.task_daily_updates to authenticated;
+grant all privileges on public.task_daily_updates to service_role;
+
+create or replace function public.get_company_daily_work_digest(p_date date default ((now() at time zone 'Asia/Kolkata')::date))
+returns table(company_id uuid, company_name text, user_id uuid, employee_name text, phone_e164 text, work_items jsonb)
+language sql stable security definer set search_path = ''
+as $$
+  select c.id, c.name, cm.user_id,
+    coalesce(nullif(trim(cm.full_name),''), au.email, 'Employee'),
+    contact.phone_e164,
+    coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'project', p.name,
+        'stage', coalesce(s.name,'Stage'),
+        'task', t.title,
+        'start_date', t.start_date,
+        'due_date', t.due_date,
+        'status', t.status
+      ) order by coalesce(t.due_date,t.start_date,'9999-12-31'::date), p.name, t.title)
+      from public.project_tasks t
+      join public.projects p on p.id=t.project_id
+      join public.company_projects cp on cp.project_id=p.id and cp.company_id=c.id
+      left join public.project_stages s on s.id=t.stage_id
+      where t.assigned_to_user_id=cm.user_id
+        and t.status <> 'done'
+        and coalesce(t.start_date,t.due_date) is not null
+        and coalesce(t.start_date,t.due_date) <= p_date
+        and (t.due_date is null or t.due_date >= p_date or t.due_date < p_date)
+        and (t.start_date is null or t.start_date <= p_date)
+    ), '[]'::jsonb)
+  from public.company_members cm
+  join public.companies c on c.id=cm.company_id
+  join auth.users au on au.id=cm.user_id
+  join public.company_member_contacts contact on contact.company_id=cm.company_id and contact.user_id=cm.user_id
+  where contact.phone_e164 is not null
+  order by c.name, coalesce(nullif(trim(cm.full_name),''),au.email);
+$$;
+revoke all on function public.get_company_daily_work_digest(date) from public, anon, authenticated;
+grant execute on function public.get_company_daily_work_digest(date) to service_role;
