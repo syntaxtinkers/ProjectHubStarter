@@ -104,11 +104,7 @@ export default function App() {
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([])
   const [companyRows, setCompanyRows] = useState<CompanyProjectRow[]>([])
   const [companyAssignments, setCompanyAssignments] = useState<CompanyAssignment[]>([])
-  const [companySlug, setCompanySlug] = useState(() => {
-    const querySlug = new URLSearchParams(window.location.search).get('company')
-    if (querySlug) return querySlug
-    try { return localStorage.getItem('projecthub-company-slug') ?? '' } catch { return '' }
-  })
+  const [companySlug, setCompanySlug] = useState(() => new URLSearchParams(window.location.search).get('company') ?? '')
   const [invitedBrand, setInvitedBrand] = useState<Company | null>(null)
   const [companyCreateName, setCompanyCreateName] = useState('')
   const [companyCreateSlug, setCompanyCreateSlug] = useState('')
@@ -166,11 +162,14 @@ export default function App() {
     }
   }, [session?.user?.id])
   useEffect(() => {
-    if (selectedCompany?.slug) {
-      setCompanySlug(selectedCompany.slug)
-      try { localStorage.setItem('projecthub-company-slug', selectedCompany.slug) } catch { /* ignore unavailable storage */ }
-    }
+    if (selectedCompany?.slug) setCompanySlug(selectedCompany.slug)
   }, [selectedCompany?.id])
+  useEffect(() => {
+    if (!session?.user && !new URLSearchParams(window.location.search).get('company')) {
+      setCompanySlug('')
+      setInvitedBrand(null)
+    }
+  }, [session?.user?.id])
   useEffect(() => {
     if (!supabase || !companySlug) { setInvitedBrand(null); return }
     let alive = true
