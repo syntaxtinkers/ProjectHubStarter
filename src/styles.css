@@ -617,3 +617,66 @@
 
 .company-logo-input-label { display:flex; flex-direction:column; gap:8px; max-width:650px; font-size:12px; font-weight:700; color:var(--company-text); }
 .company-logo-input-label input[type=file] { width:100%; padding:11px; border:1px dashed var(--company-border); border-radius:8px; background:var(--company-panel2); color:var(--company-text); font-size:11px; }
+
+
+/* Compact weekly work planner */
+.weekly-work { margin: 0 0 16px; padding: 14px; display:flex; flex-direction:column; gap:12px; }
+.weekly-work-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.weekly-work-heading h2 { margin:3px 0 4px; font-size:19px; }
+.weekly-work-heading p { margin:0; color:var(--company-muted,var(--muted)); font-size:11px; }
+.weekly-efficiency { min-width:104px; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+.weekly-efficiency>b { color:var(--company-accent,var(--purple)); font-size:24px; line-height:1.1; }
+.weekly-efficiency small,.weekly-efficiency span { color:var(--company-muted,var(--muted)); font-size:10px; }
+.weekly-work-tabs { display:flex; align-items:center; flex-wrap:wrap; gap:6px; border-bottom:1px solid var(--company-border,var(--line)); padding-bottom:8px; }
+.weekly-work-tabs button { padding:7px 10px; border:1px solid var(--company-border,var(--line)); border-radius:7px; background:transparent; color:var(--company-muted,var(--muted)); font-size:11px; cursor:pointer; }
+.weekly-work-tabs button.selected { background:var(--company-accent,var(--purple)); border-color:var(--company-accent,var(--purple)); color:white; }
+.weekly-work-week { margin-left:auto; color:var(--company-muted,var(--muted)); font-size:10px; }
+.weekly-work-error { margin:0; color:#e7ac4e; font-size:11px; overflow-wrap:anywhere; }
+.weekly-project-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.weekly-project-card { min-width:0; border:1px solid var(--company-border,var(--line)); border-radius:9px; padding:9px; background:var(--company-panel2,var(--panel)); }
+.weekly-project-title { width:100%; display:flex; align-items:center; justify-content:space-between; gap:5px; padding:0 0 7px; border:0; border-bottom:1px solid var(--company-border,var(--line)); background:transparent; color:var(--company-text,var(--text)); text-align:left; font-size:12px; font-weight:800; cursor:pointer; }
+.weekly-project-card ul { list-style:none; margin:0; padding:0; }
+.weekly-project-card li { display:grid; grid-template-columns:7px minmax(0,1fr) auto; align-items:start; gap:6px; padding:7px 0 2px; font-size:10px; color:var(--company-text,var(--text)); }
+.weekly-project-card li>span:nth-child(2) { min-width:0; overflow-wrap:anywhere; }
+.weekly-project-card li small { display:block; color:var(--company-muted,var(--muted)); font-size:9px; margin-top:2px; }
+.weekly-project-card li>b { font-size:9px; color:var(--company-muted,var(--muted)); font-weight:600; }
+.weekly-mini-status { width:6px; height:6px; margin-top:4px; border-radius:50%; background:#e7ac4e; }
+.weekly-mini-status.ongoing { background:#65a9ff; }
+.weekly-mini-status.completed { background:#47c69b; }
+.weekly-day-list { display:flex; flex-direction:column; gap:8px; }
+.weekly-day-heading { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.weekly-day-heading h3 { margin:0; font-size:13px; }
+.weekly-day-heading>span { color:var(--company-muted,var(--muted)); font-size:10px; }
+.weekly-day-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.weekly-day-card { min-width:0; border:1px solid var(--company-border,var(--line)); border-radius:9px; overflow:hidden; background:var(--company-panel,var(--panel)); }
+.weekly-day-card.today { border-color:var(--company-accent,var(--purple)); box-shadow:inset 0 0 0 1px var(--company-accent,var(--purple)); }
+.weekly-day-card>header { display:flex; align-items:center; justify-content:space-between; gap:5px; padding:8px 9px; background:var(--company-panel2,var(--panel)); border-bottom:1px solid var(--company-border,var(--line)); }
+.weekly-day-card>header b { font-size:11px; }
+.weekly-day-card>header span { color:var(--company-muted,var(--muted)); font-size:10px; }
+.weekly-day-empty { padding:0 9px; color:var(--company-muted,var(--muted)); font-size:10px; }
+.weekly-day-task { padding:8px 9px; border-bottom:1px solid var(--company-border,var(--line)); }
+.weekly-day-task:last-child { border-bottom:0; }
+.weekly-task-meta { display:flex; flex-direction:column; gap:2px; }
+.weekly-task-meta>b { color:var(--company-accent,var(--purple)); font-size:9px; }
+.weekly-task-meta small { color:var(--company-muted,var(--muted)); font-size:9px; }
+.weekly-task-name { margin:4px 0 6px; font-size:11px; font-weight:750; line-height:1.35; overflow-wrap:anywhere; }
+.weekly-assignee { margin-bottom:5px; color:var(--company-muted,var(--muted)); font-size:9px; }
+.weekly-task-status { display:flex; align-items:center; gap:5px; }
+.weekly-task-status select { min-width:0; width:100%; padding:5px 6px; border:1px solid var(--company-border,var(--line)); border-radius:6px; background:var(--company-panel2,var(--panel)); color:var(--company-text,var(--text)); font-size:10px; }
+.weekly-task-status select:disabled { opacity:.78; }
+.weekly-carry-note { display:block; margin-top:4px; color:#e7ac4e; font-size:9px; }
+.weekly-empty { display:flex; align-items:center; gap:9px; color:var(--company-muted,var(--muted)); font-size:11px; padding:8px 2px; }
+.weekly-empty svg { flex-shrink:0; }
+.company-efficiency-panel { margin-bottom:14px; }
+.efficiency-cell { display:flex; align-items:center; gap:8px; min-width:120px; }
+.efficiency-cell>b { min-width:35px; font-size:12px; }
+.efficiency-cell>span { height:6px; flex:1; border-radius:99px; overflow:hidden; background:var(--company-border,var(--line)); }
+.efficiency-cell i { display:block; height:100%; border-radius:99px; background:var(--company-accent,var(--purple)); }
+@media(max-width:1050px) { .weekly-project-grid,.weekly-day-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:640px) {
+ .weekly-work { padding:10px; }
+ .weekly-work-heading { align-items:flex-start; }
+ .weekly-project-grid,.weekly-day-grid { grid-template-columns:minmax(0,1fr); }
+ .weekly-day-heading { align-items:flex-start; flex-direction:column; }
+ .weekly-work-week { width:100%; margin-left:0; }
+}
