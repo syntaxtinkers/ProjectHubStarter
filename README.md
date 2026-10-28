@@ -129,3 +129,30 @@ To publish later, use a static host such as Cloudflare Pages and set `VITE_SUPAB
 The SQL file `supabase/upgrade_features.sql` is a one-time additive migration for the included task and membership features. It creates the task table, indexes, row-level security policies, and a membership helper function. It does not drop tables, policies, or rows. Apply it once to the existing Supabase project before using those features.
 
 Updating page layout, styles, or other frontend-only functionality does not require running SQL again. Future database-dependent features should use separate, versioned, additive migration files and only be applied when their corresponding feature requires them. Do not rerun this migration if it has already completed successfully; if it failed part-way, inspect the database state before retrying because this first-run script does not drop/recreate existing policies.
+
+
+### Weekly assigned-work dashboard and individual WhatsApp messages
+
+Apply supabase/weekly_work_dashboard.sql after the company and attendance migrations. It is additive: it adds assignee user IDs, daily status history, an admin-only company completion report, private employee WhatsApp contact numbers, and the server-side daily work digest query. It does not delete or rewrite any existing task/project data.
+
+For tasks to appear under **Work assigned to you** or **Work you assigned**, assign them to an existing member in the task editor. Existing free-text assignee names are preserved but are not automatically converted to account IDs because names are not a reliable identity match. The assignee must already have access to the project. The dashboard uses Monday–Saturday and carries incomplete items forward in the current week. An unmarked past day is recorded as “Not started”; employees can update only their own daily status, while the “Work you assigned” view is read-only.
+
+The company profile's weekly completion table is admin-only. Its percentage is completed assigned items divided by assigned items for that week, including unfinished overdue carryovers. Employee daily updates are stored separately from the existing project/task fields.
+
+#### WhatsApp daily digest and 7 PM reminder
+
+In Company Profile → Employees & admins, an admin must add each recipient's WhatsApp number in international E.164 format, e.g. +919876543210. Phone numbers are stored in a separate admin-only table and are not exposed to regular employees. Mark “Consent recorded” only after the employee has opted in; the sender excludes numbers without that consent flag.
+
+Deploy the function:
+
+    supabase functions deploy send-daily-work-messages --no-verify-jwt
+
+Configure these Supabase Edge Function secrets securely (do not commit tokens to GitHub):
+
+    supabase secrets set CRON_SECRET=YOUR_RANDOM_SECRET WHATSAPP_ACCESS_TOKEN=YOUR_META_TOKEN WHATSAPP_PHONE_NUMBER_ID=YOUR_PHONE_NUMBER_ID WHATSAPP_API_VERSION=YOUR_SUPPORTED_GRAPH_API_VERSION WHATSAPP_DAILY_TEMPLATE_NAME=YOUR_APPROVED_DAILY_TEMPLATE WHATSAPP_EVENING_TEMPLATE_NAME=YOUR_APPROVED_REMINDER_TEMPLATE WHATSAPP_TEMPLATE_LANGUAGE=en
+
+Both Meta WhatsApp message templates must be approved and contain one body placeholder ({{1}}). The daily template receives a compact work list containing project, stage, task, and deadline; the evening template receives a reminder to update today's statuses. Outbound template messages require the recipient's opted-in number and appropriate Meta Business Platform configuration. A personal WhatsApp account alone is not sufficient.
+
+Then edit supabase/company_attendance_cron.sql to replace the Supabase publishable/anon key and the same random cron secret as CRON_SECRET. Run the SQL in the Supabase SQL Editor. In addition to the existing 10:00 AM attendance schedule, it schedules the individual task digest at 08:00, the schedule-update reminder at 19:00, and automatic default “not started” records at 00:05 after the previous workday. All times are Asia/Kolkata. Re-running it replaces jobs with the same names.
+
+No WhatsApp messages are sent until the migration is applied, the function is deployed, approved templates and secrets are configured, valid employee numbers are entered, and the cron schedules are installed and tested.

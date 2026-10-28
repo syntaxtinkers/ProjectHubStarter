@@ -17,19 +17,20 @@ type Comment = { id: string; body: string; created_at: string; user_id: string }
 type Role = 'owner' | 'editor' | 'commenter' | 'viewer'
 type TaskStatus = 'todo' | 'in_progress' | 'done'
 type Stage = { id: string; project_id: string; name: string; description: string | null; start_date: string | null; end_date: string | null; sort_order?: number; created_by: string; created_at: string }
-type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; sort_order?: number; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
+type Task = { id: string; project_id: string; stage_id: string; title: string; description: string | null; status: TaskStatus; priority: string; start_date: string | null; due_date: string | null; sort_order?: number; assigned_to: string | null; assigned_by_name?: string | null; assigned_to_name?: string | null; assigned_to_user_id?: string | null; assigned_by_user_id?: string | null; custom_fields?: Record<string, string> | null; created_by: string; created_at: string }
 type TaskCustomField = { id: string; project_id: string; name: string; sort_order: number; created_by: string; created_at: string }
 type Member = { user_id: string; role: Role; joined_at: string; email?: string }
 type CompanyRole = 'admin' | 'employee'
 type CompanyTheme = { preset: string; bg: string; panel: string; panel2: string; text: string; muted: string; border: string; accent: string; accent2: string }
 type Company = { id: string; name: string; slug: string; logo_url: string | null; theme: CompanyTheme; created_by: string; role?: CompanyRole }
-type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; joined_at: string }
+type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; phone_e164?: string | null; whatsapp_opted_in?: boolean; joined_at: string }
 type CompanyProjectRow = { project_id: string; project_name: string; project_description: string | null; stage_id: string | null; stage_name: string | null; stage_start: string | null; stage_end: string | null; stage_order: number; assigned_employees: string[] }
 type CompanyAssignment = { company_id: string; project_id: string; user_id: string; assigned_by: string; assigned_at: string }
 type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'work_from_home'; started_at: string; editable_until: string; frozen_at: string | null }
 type CompanyLeaveRecord = { id: string; company_id: string; user_id: string; start_date: string; end_date: string; reason: string | null; status: 'active' | 'cancelled'; created_at: string; updated_at: string }
 type AttendanceScheduleRow = { user_id: string; employee_name: string; employee_email: string; attendance_date: string; attendance_status: 'working' | 'on_leave' | 'not_signed_in'; work_mode: string | null; started_at: string | null; editable_until: string | null; is_frozen: boolean; leave_start: string | null; leave_end: string | null; leave_reason: string | null }
 type CompanyWhatsAppSettings = { company_id: string; group_name: string; group_id: string; enabled: boolean; timezone: string; updated_by: string | null; updated_at: string }
+type CompanyWeeklyMetric = { user_id:string; employee_name:string; role:string; total_work:number; completed_work:number; completion_percent:number }
 type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'company' | 'attendance' | 'settings'
 
 const roleLabels: Record<Role, string> = { owner: 'Owner / Main editor', editor: 'Editor', commenter: 'Commenter', viewer: 'Viewer' }
@@ -91,6 +92,7 @@ export default function App() {
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('todo')
   const [taskStart, setTaskStart] = useState('')
   const [taskDue, setTaskDue] = useState('')
+  const [taskAssigneeId, setTaskAssigneeId] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<Role>('editor')
   const [notice, setNotice] = useState('')
@@ -225,7 +227,15 @@ export default function App() {
       supabase.from('company_project_assignments').select('*').eq('company_id', companyId)
     ])
     if (membersResult.error) setNotice('Could not load employee details: ' + membersResult.error.message)
-    else setCompanyMembers((membersResult.data ?? []) as CompanyMember[])
+    else {
+      let contacts: {user_id:string;phone_e164:string;whatsapp_opted_in:boolean}[]=[]
+      if (companies.find(company=>company.id===companyId)?.role==='admin') {
+        const {data:contactRows,error:contactError}=await supabase.from('company_member_contacts').select('user_id,phone_e164,whatsapp_opted_in').eq('company_id',companyId)
+        if (contactError) setNotice('Employee WhatsApp numbers need the weekly_work_dashboard.sql migration: '+contactError.message)
+        else contacts=(contactRows??[]) as {user_id:string;phone_e164:string;whatsapp_opted_in:boolean}[]
+      }
+      setCompanyMembers(((membersResult.data ?? []) as CompanyMember[]).map(member=>({...member,phone_e164:contacts.find(contact=>contact.user_id===member.user_id)?.phone_e164??null,whatsapp_opted_in:contacts.find(contact=>contact.user_id===member.user_id)?.whatsapp_opted_in??false})))
+    }
     if (projectsResult.error) setNotice('Could not load company deadlines: ' + projectsResult.error.message)
     else setCompanyRows((projectsResult.data ?? []) as CompanyProjectRow[])
     if (assignmentResult.error) setNotice('Could not load assignments: ' + assignmentResult.error.message)
@@ -324,11 +334,23 @@ export default function App() {
     else { await loadCompanyData(selectedCompany.id); setNotice('Employee assigned to the project.') }
     setBusy(false)
   }
-  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title'>>) {
-    if (!supabase || !selectedCompany || !isCompanyAdmin || member.user_id === session.user.id) return
-    const { error } = await supabase.from('company_members').update(patch).eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
-    if (error) setNotice('Could not update employee: ' + error.message)
-    else { await loadCompanyData(selectedCompany.id); setNotice('Employee details updated.') }
+  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title' | 'phone_e164' | 'whatsapp_opted_in'>>) {
+    if (!supabase || !selectedCompany || !isCompanyAdmin) return
+    const { phone_e164, whatsapp_opted_in, ...profilePatch } = patch
+    if (member.user_id === session.user.id && Object.keys(profilePatch).length) return
+    if (Object.keys(profilePatch).length) {
+      const { error } = await supabase.from('company_members').update(profilePatch).eq('company_id', selectedCompany.id).eq('user_id', member.user_id)
+      if (error) { setNotice('Could not update employee: ' + error.message); return }
+    }
+    if (phone_e164 !== undefined || whatsapp_opted_in !== undefined) {
+      const phone = (phone_e164 !== undefined ? (phone_e164 ?? '') : (member.phone_e164 ?? '')).trim()
+      if (phone && !/^\+[1-9][0-9]{7,14}$/.test(phone)) { setNotice('Enter the WhatsApp number in international E.164 format, e.g. +919876543210.'); return }
+      const result = phone
+        ? await supabase.from('company_member_contacts').upsert({company_id:selectedCompany.id,user_id:member.user_id,phone_e164:phone,whatsapp_opted_in:whatsapp_opted_in ?? member.whatsapp_opted_in ?? false,updated_by:session.user.id,updated_at:new Date().toISOString()},{onConflict:'company_id,user_id'})
+        : await supabase.from('company_member_contacts').delete().eq('company_id',selectedCompany.id).eq('user_id',member.user_id)
+      if (result.error) { setNotice('Could not save WhatsApp number: '+result.error.message); return }
+    }
+    await loadCompanyData(selectedCompany.id); setNotice('Employee details updated.')
   }
   async function removeCompanyMember(member: CompanyMember) {
     if (!supabase || !selectedCompany || !isCompanyAdmin || member.user_id === session.user.id) return
@@ -500,8 +522,8 @@ export default function App() {
     const { error } = await supabase.from('project_stages').delete().eq('id', stage.id)
     if (error) setNotice(error.message); else { await loadProjectData(selected.id); setTab('stages'); setNotice(`Stage "${stage.name}" deleted.`) }
   }
-  function openCreateTask(stageId: string) { setEditingTask(null); setTaskStageId(stageId); setTaskTitle(''); setTaskDescription(''); setTaskPriority('normal'); setTaskStatus('todo'); setTaskStart(''); setTaskDue(''); setTaskCommentText(''); setShowTask(true) }
-  function openEditTask(task: Task) { setEditingTask(task); setTaskStageId(task.stage_id); setTaskTitle(task.title); setTaskDescription(task.description ?? ''); setTaskPriority(task.priority); setTaskStatus(task.status); setTaskStart(task.start_date ?? ''); setTaskDue(task.due_date ?? ''); setTaskCommentText(''); setShowTask(true) }
+  function openCreateTask(stageId: string) { setEditingTask(null); setTaskStageId(stageId); setTaskTitle(''); setTaskDescription(''); setTaskPriority('normal'); setTaskStatus('todo'); setTaskStart(''); setTaskDue(''); setTaskAssigneeId(''); setTaskCommentText(''); setShowTask(true) }
+  function openEditTask(task: Task) { setEditingTask(task); setTaskStageId(task.stage_id); setTaskTitle(task.title); setTaskDescription(task.description ?? ''); setTaskPriority(task.priority); setTaskStatus(task.status); setTaskStart(task.start_date ?? ''); setTaskDue(task.due_date ?? ''); setTaskAssigneeId(task.assigned_to_user_id ?? ''); setTaskCommentText(''); setShowTask(true) }
   async function saveTask(e: FormEvent) {
     e.preventDefault(); if (!supabase || !session?.user || !selected || !canEdit(selected.role) || !taskTitle.trim()) return
     if (!taskStageId || !stages.some(stage => stage.id === taskStageId)) { setNotice('Create or select a stage before adding tasks.'); return }
@@ -510,7 +532,7 @@ export default function App() {
     if (parentStage?.start_date && ((taskStart && taskStart < parentStage.start_date) || (taskDue && taskDue < parentStage.start_date))) { setNotice('Task dates cannot be before the stage start date (' + parentStage.start_date + ').'); return }
     if (parentStage?.end_date && ((taskStart && taskStart > parentStage.end_date) || (taskDue && taskDue > parentStage.end_date))) { setNotice('Task dates cannot be after the stage end date (' + parentStage.end_date + ').'); return }
     setBusy(true); setNotice('')
-    const payload = { stage_id: taskStageId, project_id: selected.id, title: taskTitle.trim(), description: taskDescription.trim() || null, status: taskStatus, priority: taskPriority, start_date: taskStart || null, due_date: taskDue || null, sort_order: editingTask?.sort_order ?? (tasks.filter(t => t.stage_id === taskStageId).length ? Math.max(...tasks.filter(t => t.stage_id === taskStageId).map(t => t.sort_order ?? -1)) + 1 : 0) }
+    const payload = { stage_id: taskStageId, project_id: selected.id, title: taskTitle.trim(), description: taskDescription.trim() || null, status: taskStatus, priority: taskPriority, start_date: taskStart || null, due_date: taskDue || null, assigned_to_user_id: taskAssigneeId || null, assigned_by_user_id: taskAssigneeId ? (editingTask?.assigned_to_user_id === taskAssigneeId ? (editingTask?.assigned_by_user_id ?? session.user.id) : session.user.id) : null, assigned_to: taskAssigneeId ? (companyMembers.find(m=>m.user_id===taskAssigneeId)?.full_name ?? companyMembers.find(m=>m.user_id===taskAssigneeId)?.email ?? taskAssigneeId.slice(0,8)) : null, assigned_to_name: taskAssigneeId ? (companyMembers.find(m=>m.user_id===taskAssigneeId)?.full_name ?? companyMembers.find(m=>m.user_id===taskAssigneeId)?.email ?? taskAssigneeId.slice(0,8)) : null, assigned_by_name: taskAssigneeId ? (editingTask?.assigned_by_name ?? profileName ?? session.user.email ?? null) : null, sort_order: editingTask?.sort_order ?? (tasks.filter(t => t.stage_id === taskStageId).length ? Math.max(...tasks.filter(t => t.stage_id === taskStageId).map(t => t.sort_order ?? -1)) + 1 : 0) }
     const result = editingTask ? await supabase.from('project_tasks').update(payload).eq('id', editingTask.id) : await supabase.from('project_tasks').insert({ ...payload, created_by: session.user.id })
     if (result.error) setNotice(`Could not save task: ${result.error.message}. Check that supabase/rebuild_stages.sql has been applied.`)
     else { setShowTask(false); setEditingTask(null); await loadProjectData(selected.id); setNotice(editingTask ? 'Task updated.' : 'Task created.') }
@@ -688,7 +710,7 @@ export default function App() {
       <header className="topbar"><div className="breadcrumbs"><span>{displayCompany?.name ?? 'CKPC'} Project Hub</span><span className="crumb-slash">/</span><b>{tab==='home'?'Dashboard':tab==='company'?'Company profile':tab==='attendance'?(isCompanyAdmin?'Attendance schedule':'My attendance'):tab==='settings'?'Settings':selected?.name ?? 'Dashboard'}</b></div><div className="top-actions"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects…"/><kbd>Ctrl K</kbd></div><div className="top-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div></div></header>
       <div className="page-content">
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
-        {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
+        {tab==='home' ? <GlobalDashboard projects={projects} currentUserId={session.user.id} currentUserEmail={session.user.email ?? ''} companyMembers={companyMembers} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
         tab==='company' ? (selectedCompany ? <CompanyProfile company={selectedCompany} isAdmin={isCompanyAdmin} members={companyMembers} rows={companyRows} assignments={companyAssignments} availableProjects={projects} busy={busy} onSave={saveCompanyProfile} onLogoUpload={uploadCompanyLogo} onInvite={inviteCompanyMember} onLinkProject={linkProjectToCompany} onUnlinkProject={unlinkProjectFromCompany} onAssign={assignCompanyProject} onMemberUpdate={updateCompanyMember} onRemoveMember={removeCompanyMember} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} inviteEmail={companyInviteEmail} setInviteEmail={setCompanyInviteEmail} inviteRole={companyInviteRole} setInviteRole={setCompanyInviteRole} assignProjectId={assignProjectId} setAssignProjectId={setAssignProjectId} assignEmployeeId={assignEmployeeId} setAssignEmployeeId={setAssignEmployeeId}/> : <section className="panel"><h2>No company selected</h2><p>Create a company from Settings, or accept a company invitation from your email.</p><button className="primary" onClick={()=>setTab('settings')}>Open Settings</button></section>) :
         tab==='attendance' ? (selectedCompany ? <AttendancePage company={selectedCompany} currentUser={session.user} isAdmin={isCompanyAdmin}/> : <section className="panel"><h2>No company selected</h2><p>Select a company first.</p></section>) :
         tab==='settings' ? <><CompanySettings companies={companies} selectedCompanyId={selectedCompanyId} onSelect={setSelectedCompanyId} companyName={companyCreateName} setCompanyName={setCompanyCreateName} companySlug={companyCreateSlug} setCompanySlug={setCompanyCreateSlug} logoFile={companyCreateLogo} setLogoFile={setCompanyCreateLogo} onCreate={createCompany} busy={busy}/><Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''} companyThemeLocked={Boolean(selectedCompany)} onOpenCompany={()=>setTab('company')}/></> :
@@ -725,7 +747,7 @@ export default function App() {
     {showCreate&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowCreate(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">NEW WORKSPACE</span><h2>Create a project</h2><p>Give your team a dedicated place to work together.</p></div><button className="icon-button" onClick={()=>setShowCreate(false)}><X size={18}/></button></div><form onSubmit={createProject} className="form-stack"><label>Project name<input autoFocus value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="e.g. Website redesign" maxLength={80} required/></label><label>Description <span className="optional">(optional)</span><textarea value={projectDescription} onChange={e=>setProjectDescription(e.target.value)} placeholder="What is this project about?" rows={3} maxLength={500}/></label><div className="modal-note"><LockKeyhole size={15}/> Your new project starts private.</div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowCreate(false)}>Cancel</button><button className="primary" disabled={busy||!projectName.trim()}><Plus size={16}/>{busy?'Creating…':'Create project'}</button></div></form></section></div>}
     {showProjectEdit&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowProjectEdit(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT SETTINGS</span><h2>Edit project</h2><p>Rename this project or update its description.</p></div><button type="button" className="icon-button" onClick={()=>setShowProjectEdit(false)}><X size={18}/></button></div><form onSubmit={updateProject} className="form-stack"><label>Project name<input autoFocus value={editProjectName} onChange={e=>setEditProjectName(e.target.value)} maxLength={80} required/></label><label>Description<textarea value={editProjectDescription} onChange={e=>setEditProjectDescription(e.target.value)} rows={3} maxLength={500}/></label><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowProjectEdit(false)}>Cancel</button><button className="primary" disabled={busy||!editProjectName.trim()}><Check size={15}/> Save project</button></div></form></section></div>}
     {showStage&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowStage(false)}}><section className="modal"><div className="modal-head"><div><span className="eyebrow">PROJECT STAGE</span><h2>{editingStage?'Edit stage':'Create a stage'}</h2><p>Stages group related tasks and summarize their progress.</p></div><button type="button" className="icon-button" onClick={()=>setShowStage(false)}><X size={18}/></button></div><form onSubmit={saveStage} className="form-stack"><label>Stage name<input autoFocus value={stageName} onChange={e=>setStageName(e.target.value)} placeholder="e.g. Flooring" maxLength={160} required/></label><label>Description<textarea value={stageDescription} onChange={e=>setStageDescription(e.target.value)} rows={3} maxLength={5000} placeholder="Describe the purpose or scope of this stage."/></label><div className="form-grid"><label>Stage start date<input type="date" value={stageStart} max={stageEnd||undefined} onChange={e=>setStageStart(e.target.value)}/></label><label>Stage end date<input type="date" value={stageEnd} min={stageStart||undefined} onChange={e=>setStageEnd(e.target.value)}/></label></div><p className="muted tiny">Tasks must stay within the stage date range. Leave a boundary blank if it is not defined.</p><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowStage(false)}>Cancel</button><button className="primary" disabled={busy||!stageName.trim()}><Check size={15}/>{busy?'Saving…':editingStage?'Save changes':'Create stage'}</button></div></form></section></div>}
-    {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal task-edit-modal"><div className="modal-head"><div><span className="eyebrow">STAGE TASK</span><h2>{editingTask?'Edit task':'Add a task'}</h2><p>{selectedStage?.name ?? stages.find(s=>s.id===taskStageId)?.name ?? 'Stage'} · update dates, details, status and comments any time.</p></div><button type="button" className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={saveTask} className="form-stack"><label>Task name<input autoFocus disabled={!canEdit(selected.role)} value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Lay tiles" maxLength={160} required/></label><label>Description<textarea disabled={!canEdit(selected.role)} value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={3} maxLength={5000} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Status<select disabled={!canEdit(selected.role)} value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To be started</option><option value="in_progress">Ongoing</option><option value="done">Completed</option></select></label><label>Priority<select disabled={!canEdit(selected.role)} value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input disabled={!canEdit(selected.role)} type="date" value={taskStart} min={stages.find(s=>s.id===taskStageId)?.start_date||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskStart(e.target.value)}/></label><label>End date<input disabled={!canEdit(selected.role)} type="date" value={taskDue} min={[taskStart,stages.find(s=>s.id===taskStageId)?.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Close</button>{canEdit(selected.role)&&<button className="primary" disabled={busy||!taskTitle.trim()}><Check size={15}/>{busy?'Saving…':editingTask?'Save task':'Create task'}</button>}{editingTask&&canEdit(selected.role)&&<button type="button" className="outline-button danger-button" onClick={()=>deleteTask(editingTask)}><Trash2 size={14}/> Delete task</button>}</div></form>{editingTask&&<div className="task-modal-comments"><CommentThread title="Task comments" comments={taskComments} canComment={canComment(selected.role)} canManage={canEdit(selected.role)} currentUserId={session.user.id} commentText={taskCommentText} setCommentText={setTaskCommentText} busy={busy} onSubmit={addTaskComment} onEdit={comment=>editThreadComment('task',comment)} onDelete={comment=>deleteThreadComment('task',comment)} placeholder="Comment on this task…"/></div>}</section></div>}
+    {showTask&&selected&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowTask(false)}}><section className="modal task-edit-modal"><div className="modal-head"><div><span className="eyebrow">STAGE TASK</span><h2>{editingTask?'Edit task':'Add a task'}</h2><p>{selectedStage?.name ?? stages.find(s=>s.id===taskStageId)?.name ?? 'Stage'} · update dates, details, status and comments any time.</p></div><button type="button" className="icon-button" onClick={()=>setShowTask(false)}><X size={18}/></button></div><form onSubmit={saveTask} className="form-stack"><label>Task name<input autoFocus disabled={!canEdit(selected.role)} value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} placeholder="e.g. Lay tiles" maxLength={160} required/></label><label>Description<textarea disabled={!canEdit(selected.role)} value={taskDescription} onChange={e=>setTaskDescription(e.target.value)} rows={3} maxLength={5000} placeholder="What needs to be done?"/></label><div className="form-grid"><label>Assigned to<select disabled={!canEdit(selected.role)} value={taskAssigneeId} onChange={e=>setTaskAssigneeId(e.target.value)}><option value="">Unassigned</option>{members.map(member=><option key={member.user_id} value={member.user_id}>{companyMembers.find(cm=>cm.user_id===member.user_id)?.full_name || companyMembers.find(cm=>cm.user_id===member.user_id)?.email || (member.user_id===session.user.id?'You':'Member '+member.user_id.slice(0,8))}</option>)}</select></label><label>Status<select disabled={!canEdit(selected.role)} value={taskStatus} onChange={e=>setTaskStatus(e.target.value as TaskStatus)}><option value="todo">To be started</option><option value="in_progress">Ongoing</option><option value="done">Completed</option></select></label><label>Priority<select disabled={!canEdit(selected.role)} value={taskPriority} onChange={e=>setTaskPriority(e.target.value)}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Start date<input disabled={!canEdit(selected.role)} type="date" value={taskStart} min={stages.find(s=>s.id===taskStageId)?.start_date||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskStart(e.target.value)}/></label><label>End date<input disabled={!canEdit(selected.role)} type="date" value={taskDue} min={[taskStart,stages.find(s=>s.id===taskStageId)?.start_date].filter(Boolean).sort().slice(-1)[0]||undefined} max={stages.find(s=>s.id===taskStageId)?.end_date||undefined} onChange={e=>setTaskDue(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="outline-button" onClick={()=>setShowTask(false)}>Close</button>{canEdit(selected.role)&&<button className="primary" disabled={busy||!taskTitle.trim()}><Check size={15}/>{busy?'Saving…':editingTask?'Save task':'Create task'}</button>}{editingTask&&canEdit(selected.role)&&<button type="button" className="outline-button danger-button" onClick={()=>deleteTask(editingTask)}><Trash2 size={14}/> Delete task</button>}</div></form>{editingTask&&<div className="task-modal-comments"><CommentThread title="Task comments" comments={taskComments} canComment={canComment(selected.role)} canManage={canEdit(selected.role)} currentUserId={session.user.id} commentText={taskCommentText} setCommentText={setTaskCommentText} busy={busy} onSubmit={addTaskComment} onEdit={comment=>editThreadComment('task',comment)} onDelete={comment=>deleteThreadComment('task',comment)} placeholder="Comment on this task…"/></div>}</section></div>}
   </div>
 }
 
@@ -910,13 +932,16 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;
  onSave:(patch:Partial<Pick<Company,'name'|'logo_url'|'theme'>>)=>Promise<void>;onLogoUpload:(file:File)=>Promise<void>;
  onInvite:(e:FormEvent)=>void;onLinkProject:()=>Promise<void>;onUnlinkProject:(id:string)=>Promise<void>;onAssign:()=>Promise<void>;
- onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
+ onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'|'whatsapp_opted_in'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
  linkProjectId:string;setLinkProjectId:(id:string)=>void;inviteEmail:string;setInviteEmail:(email:string)=>void;inviteRole:CompanyRole;setInviteRole:(role:CompanyRole)=>void;assignProjectId:string;setAssignProjectId:(id:string)=>void;assignEmployeeId:string;setAssignEmployeeId:(id:string)=>void;
 }) {
  const [name,setName]=useState(company.name)
  const [theme,setTheme]=useState<CompanyTheme>({...defaultCompanyTheme,...(company.theme??{})})
  const [editName,setEditName]=useState(false)
+ const [weeklyMetrics,setWeeklyMetrics]=useState<CompanyWeeklyMetric[]>([])
+ const [weeklyMetricsError,setWeeklyMetricsError]=useState('')
  useEffect(()=>{setName(company.name);setTheme({...defaultCompanyTheme,...(company.theme??{})})},[company.id,company.name,JSON.stringify(company.theme)])
+ useEffect(()=>{let alive=true;async function load(){if(!isAdmin||!supabase){setWeeklyMetrics([]);return}const week=localIsoDate(mondayOf(new Date()));const {data,error}=await supabase.rpc('company_weekly_completion',{p_company_id:company.id,p_week_start:week});if(!alive)return;if(error){setWeeklyMetricsError(error.message);setWeeklyMetrics([])}else{setWeeklyMetricsError('');setWeeklyMetrics((data??[]) as CompanyWeeklyMetric[])}}void load();const timer=window.setInterval(()=>void load(),30000);return()=>{alive=false;window.clearInterval(timer)}},[company.id,isAdmin])
  const projectList=Array.from(new Map(rows.map(row=>[row.project_id,{id:row.project_id,name:row.project_name,description:row.project_description}])).values())
  const linkedIds=new Set(projectList.map(p=>p.id))
  const linkable=availableProjects.filter(p=>!linkedIds.has(p.id))
@@ -936,6 +961,7 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
     {isAdmin&&<div className="company-profile-actions"><label className="outline-button upload-logo-button"><Upload size={15}/> Upload logo<input type="file" accept="image/*" hidden onChange={e=>{const f=e.target.files?.[0];if(f)void onLogoUpload(f);e.currentTarget.value=''}}/></label><button className="outline-button" onClick={()=>setEditName(v=>!v)}><Pencil size={14}/> Edit company name</button></div>}
    </div>
    {isAdmin&&editName&&<form className="panel form-stack company-name-editor" onSubmit={e=>{e.preventDefault();if(name.trim())void onSave({name:name.trim()}).then(()=>setEditName(false))}}><label>Company name<input value={name} onChange={e=>setName(e.target.value)} maxLength={120} required/></label><div><button className="primary" disabled={busy||!name.trim()}><Save size={14}/> Save company name</button></div></form>}
+   {isAdmin&&<section className="panel company-efficiency-panel"><div className="panel-heading"><div><h2>Weekly employee completion</h2><p>Admin-only · completed assignments divided by assigned work for this week, including unfinished carryovers.</p></div><Activity size={19}/></div>{weeklyMetricsError?<p className="muted tiny">Apply supabase/weekly_work_dashboard.sql to enable this report: {weeklyMetricsError}</p>:<div className="compact-table-wrap"><table className="compact-table"><thead><tr><th>Employee / admin</th><th>Role</th><th>Completed</th><th>Assigned this week</th><th>Completion</th></tr></thead><tbody>{weeklyMetrics.map(metric=><tr key={metric.user_id}><td><b>{metric.employee_name}</b></td><td>{metric.role}</td><td>{metric.completed_work}</td><td>{metric.total_work}</td><td><div className="efficiency-cell"><b>{metric.completion_percent}%</b><span><i style={{width:metric.completion_percent+'%'}}/></span></div></td></tr>)}{weeklyMetrics.length===0&&<tr><td colSpan={5}>No assigned work recorded for this week yet.</td></tr>}</tbody></table></div>}</section>}
    <div className="company-metric-row"><div className="company-metric"><span>PROJECTS LINKED</span><b>{projectList.length}</b></div><div className="company-metric"><span>STAGES SHOWN</span><b>{uniqueRows.length}</b></div><div className="company-metric"><span>EMPLOYEES & ADMINS</span><b>{members.length}</b></div><div className="company-metric"><span>UPCOMING STAGE ENDS</span><b>{uniqueRows.filter(r=>r.stage_end&&r.stage_end>=new Date().toISOString().slice(0,10)).length}</b></div></div>
    <section className="panel">
     <div className="panel-heading"><div><h2>Combined project schedule</h2><p>Project and stage dates only. Task-level data is intentionally not shown here.</p></div><CalendarRange size={20}/></div>
@@ -957,9 +983,9 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
    <section className="panel">
     <div className="panel-heading"><div><h2>Employees & admins</h2><p>Company roster and access. Project assignments do not alter project-level roles.</p></div><Users size={19}/></div>
     {isAdmin&&<form className="invite-form company-invite-form" onSubmit={onInvite}><div className="form-grid"><label>Invite by email<input type="email" autoComplete="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="partner@company.com" required/></label><label>Company role<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as CompanyRole)}><option value="admin">Admin / partner</option><option value="employee">Employee</option></select></label></div><button className="primary compact" disabled={busy||!inviteEmail.trim()}><Mail size={15}/>{busy?'Sending…':'Send invitation email'}</button><p className="muted tiny">Sending requires the invite-company-member Edge Function plus email-provider secrets. Invitations only grant company membership; they do not add the person to individual projects.</p></form>}
-    <div className="compact-table-wrap"><table className="compact-table company-members-table"><thead><tr><th>Employee name</th><th>Email</th><th>Job title</th><th>Company role</th>{isAdmin&&<th>Actions</th>}</tr></thead><tbody>
+    <div className="compact-table-wrap"><table className="compact-table company-members-table"><thead><tr><th>Employee name</th><th>Email</th><th>Job title</th>{isAdmin&&<th>WhatsApp number</th>}<th>Company role</th>{isAdmin&&<th>Actions</th>}</tr></thead><tbody>
      {members.map(member=><CompanyMemberEditor key={member.user_id} member={member} isAdmin={isAdmin} currentMember={member.user_id===company.created_by} onSave={patch=>onMemberUpdate(member,patch)} onRemove={()=>void onRemoveMember(member)}/>)}
-     {members.length===0&&<tr><td colSpan={isAdmin?5:4}>No company members found.</td></tr>}
+     {members.length===0&&<tr><td colSpan={isAdmin?6:4}>No company members found.</td></tr>}
     </tbody></table></div>
    </section>
    {isAdmin&&members.some(m=>m.role==='employee')&&projectList.length>0&&<section className="panel"><div className="panel-heading"><div><h2>Assign employees to projects</h2><p>Set a company-level assignment so the employee appears in the combined deadline table.</p></div><UserCheck size={19}/></div>
@@ -970,12 +996,15 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  </section>
 }
 
-function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemove:()=>void}) {
+function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{member:CompanyMember;isAdmin:boolean;currentMember:boolean;onSave:(patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'|'phone_e164'|'whatsapp_opted_in'>>)=>Promise<void>;onRemove:()=>void}) {
  const [name,setName]=useState(member.full_name)
  const [job,setJob]=useState(member.job_title??'')
- useEffect(()=>{setName(member.full_name);setJob(member.job_title??'')},[member.full_name,member.job_title])
+ const [phone,setPhone]=useState(member.phone_e164??'')
+ const [optedIn,setOptedIn]=useState(member.whatsapp_opted_in??false)
+ useEffect(()=>{setName(member.full_name);setJob(member.job_title??'');setPhone(member.phone_e164??'');setOptedIn(member.whatsapp_opted_in??false)},[member.full_name,member.job_title,member.phone_e164,member.whatsapp_opted_in])
  const changed=name.trim()!==member.full_name||job!==(member.job_title??'')
- return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td><td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
+ const phoneChanged=phone.trim()!==(member.phone_e164??'')
+ return <tr><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Employee name" value={name} onChange={e=>setName(e.target.value)} onBlur={()=>{if(changed&&name.trim())void onSave({full_name:name.trim(),job_title:job.trim()||null})}}/>:<b>{member.full_name}</b>}</td><td>{member.email}</td><td>{isAdmin&&!currentMember?<input className="company-cell-input" aria-label="Job title" value={job} placeholder="Add role/title" onChange={e=>setJob(e.target.value)} onBlur={()=>{if(changed)void onSave({full_name:name.trim()||member.full_name,job_title:job.trim()||null})}}/>:(member.job_title||'—')}</td>{isAdmin&&<td><input className="company-cell-input company-phone-input" aria-label="WhatsApp number in international format" value={phone} placeholder="+919876543210" onChange={e=>setPhone(e.target.value)} onBlur={()=>{if(phoneChanged)void onSave({phone_e164:phone.trim(),whatsapp_opted_in:optedIn})}}/>{<label className="company-whatsapp-optin"><input type="checkbox" checked={optedIn} disabled={!phone.trim()} onChange={e=>{setOptedIn(e.target.checked);void onSave({phone_e164:phone.trim(),whatsapp_opted_in:e.target.checked})}}/> Consent recorded</label>}</td>}<td>{isAdmin&&!currentMember?<select className="company-cell-select" aria-label="Company role" value={member.role} onChange={e=>void onSave({role:e.target.value as CompanyRole})}><option value="admin">Admin</option><option value="employee">Employee</option></select>:<span className={'company-role-pill '+member.role}>{member.role==='admin'?'Admin':'Employee'}</span>}</td>{isAdmin&&<td>{!currentMember&&<button className="icon-button small danger-icon" title="Remove from company" onClick={onRemove}><Trash2 size={14}/></button>}</td>}</tr>
 }
 
 function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start:Date;end:Date;span:number}) {
@@ -990,7 +1019,107 @@ function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start
  </div>
 }
 
-function GlobalDashboard({projects,onOpenProject,onCreateProject}:{projects:Project[];onOpenProject:(id:string)=>void;onCreateProject:()=>void}) {
+
+type DailyWorkStatus = 'not_started' | 'ongoing' | 'completed'
+type DailyWorkUpdate = { id:string; task_id:string; user_id:string; work_date:string; week_start:string; status:DailyWorkStatus; updated_at:string; is_automatic?:boolean }
+function localIsoDate(date:Date) { return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0') }
+function mondayOf(date:Date) { const d=new Date(date.getFullYear(),date.getMonth(),date.getDate());const day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d }
+function shiftIsoDate(iso:string,days:number) { const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+days);return localIsoDate(d) }
+function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers,onOpenProject,onTaskStatusChanged}:{projects:Project[];tasks:Task[];stages:Stage[];currentUserId:string;companyMembers:CompanyMember[];onOpenProject:(id:string)=>void;onTaskStatusChanged:(taskId:string,status:TaskStatus)=>void}) {
+  const today=localIsoDate(new Date()),weekStart=localIsoDate(mondayOf(new Date())),weekEnd=shiftIsoDate(weekStart,5)
+  const [view,setView]=useState<'assigned_to_you'|'assigned_by_you'>('assigned_to_you')
+  const [updates,setUpdates]=useState<DailyWorkUpdate[]>([]),[saving,setSaving]=useState<string|null>(null),[error,setError]=useState(''),[loaded,setLoaded]=useState(false)
+  const projectById=useMemo(()=>new Map(projects.map(p=>[p.id,p])),[projects]),stageById=useMemo(()=>new Map(stages.map(s=>[s.id,s])),[stages])
+  const updateKey=(taskId:string,date:string)=>taskId+'|'+date
+  const updateMap=useMemo(()=>new Map(updates.map(u=>[updateKey(u.task_id,u.work_date),u.status])),[updates])
+  const assignedToMe=useMemo(()=>tasks.filter(t=>t.assigned_to_user_id===currentUserId),[tasks,currentUserId])
+  const assignedByMe=useMemo(()=>tasks.filter(t=>t.assigned_by_user_id===currentUserId&&t.assigned_to_user_id&&t.assigned_to_user_id!==currentUserId),[tasks,currentUserId])
+  const currentList=view==='assigned_to_you'?assignedToMe:assignedByMe
+  const weekTasks=useMemo(()=>currentList.filter(t=>{
+    if(!t.start_date&&!t.due_date)return false
+    const start=t.start_date??t.due_date??'9999-12-31',end=t.due_date??t.start_date??'0000-01-01'
+    if(t.status==='done'&&end<weekStart)return false
+    return start<=weekEnd&&(end>=weekStart||(t.status!=='done'&&end<weekStart))
+  }),[currentList,weekStart,weekEnd])
+  const scheduledDate=(task:Task)=>task.start_date&&task.start_date>=weekStart&&task.start_date<=weekEnd?task.start_date:task.start_date&&task.start_date<weekStart&&(task.due_date==null||task.due_date>=weekStart)?weekStart:task.due_date&&task.due_date>=weekStart&&task.due_date<=weekEnd?weekStart:(task.due_date??task.start_date??'')<weekStart?weekStart:weekStart
+  const weekTaskIds=weekTasks.map(t=>t.id)
+  useEffect(()=>{
+    let alive=true
+    async function load(){
+      if(!supabase||!weekTaskIds.length){setUpdates([]);setLoaded(true);return}
+      setLoaded(false);setError('')
+      const {data,error:readError}=await supabase.from('task_daily_updates').select('*').eq('week_start',weekStart).in('task_id',weekTaskIds)
+      if(!alive)return
+      if(readError){setError(readError.message);setUpdates([])}else setUpdates((data??[]) as DailyWorkUpdate[])
+      setLoaded(true)
+    }
+    void load();return()=>{alive=false}
+  },[currentUserId,weekStart,weekTaskIds.join('|')])
+  useEffect(()=>{
+    if(!loaded||!supabase||view!=='assigned_to_you')return
+    let cancelled=false
+    async function markPastDays(){
+      const missing:{task_id:string;user_id:string;work_date:string;week_start:string;status:DailyWorkStatus;updated_by:string;is_automatic:boolean}[]=[]
+      for(const task of weekTasks.filter(t=>t.status!=='done'))for(let offset=0;offset<6;offset++){
+        const date=shiftIsoDate(weekStart,offset)
+        if(date>=today||date<scheduledDate(task))continue
+        if(!updates.some(u=>u.task_id===task.id&&u.work_date===date))missing.push({task_id:task.id,user_id:currentUserId,work_date:date,week_start:weekStart,status:'not_started',updated_by:currentUserId,is_automatic:true})
+      }
+      if(missing.length&&!cancelled){
+        const {data,error:writeError}=await supabase!.from('task_daily_updates').upsert(missing,{onConflict:'task_id,user_id,work_date'}).select('*')
+        if(cancelled)return
+        if(writeError){setError(writeError.message);return}
+        if(data?.length)setUpdates(old=>[...old,...(data as DailyWorkUpdate[]).filter(n=>!old.some(o=>o.id===n.id))])
+      }
+    }
+    void markPastDays();return()=>{cancelled=true}
+  },[loaded,view,weekStart,today,weekTasks.map(t=>t.id).join('|'),updates.map(u=>u.task_id+'|'+u.work_date).join(';'),currentUserId])
+  const setStatus=async(task:Task,date:string,status:DailyWorkStatus)=>{
+    if(!supabase||view!=='assigned_to_you'||date!==today)return
+    const key=updateKey(task.id,date);setSaving(key);setError('')
+    const {data,error:writeError}=await supabase.rpc('set_task_daily_status',{p_task_id:task.id,p_work_date:date,p_status:status})
+    if(writeError)setError(writeError.message);else {setUpdates(old=>[...old.filter(u=>!(u.task_id===task.id&&u.work_date===date)),data as DailyWorkUpdate]);onTaskStatusChanged(task.id,status==='completed'?'done':status==='ongoing'?'in_progress':'todo')}
+    setSaving(null)
+  }
+  const statusAt=(task:Task,date:string):DailyWorkStatus=>updateMap.get(updateKey(task.id,date))??(task.status==='done'?'completed':'not_started')
+  const completedDates=(task:Task)=>updates.filter(u=>u.task_id===task.id&&u.status==='completed').map(u=>u.work_date).sort()
+  const taskIsOnDay=(task:Task,date:string)=>{
+    if(date<scheduledDate(task)||date>weekEnd)return false
+    const doneDates=completedDates(task)
+    if(doneDates.some(doneDate=>doneDate<date))return false
+    if(task.status==='done'&&!doneDates.includes(date))return false
+    return true
+  }
+  const total=weekTasks.length,completed=weekTasks.filter(task=>task.status==='done'||updates.some(u=>u.task_id===task.id&&u.week_start===weekStart&&u.status==='completed')).length
+  const efficiency=total?Math.round(completed/total*100):100
+  const nameFor=(task:Task)=>{if(task.assigned_to_user_id===currentUserId)return 'You';const member=companyMembers.find(m=>m.user_id===task.assigned_to_user_id);return member?.full_name||member?.email||task.assigned_to_name||('Member '+(task.assigned_to_user_id??'').slice(0,8))}
+  const displayFor=(task:Task)=>({project:projectById.get(task.project_id)?.name??'Project',stage:stageById.get(task.stage_id)?.name??'Stage'})
+  const days=Array.from({length:6},(_,i)=>shiftIsoDate(weekStart,i)),dayName=(iso:string)=>new Date(iso+'T12:00:00').toLocaleDateString(undefined,{weekday:'long'}),dateShort=(iso:string)=>new Date(iso+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})
+  const dayTasks=(date:string)=>weekTasks.filter(task=>taskIsOnDay(task,date)).sort((a,b)=>(a.due_date??a.start_date??'9999').localeCompare(b.due_date??b.start_date??'9999'))
+  const projectGroups=Array.from(new Map(weekTasks.map(task=>[task.project_id,{id:task.project_id,name:projectById.get(task.project_id)?.name??'Project'}])).values())
+  return <section className="weekly-work panel">
+    <div className="weekly-work-heading"><div><span className="eyebrow">THIS WEEK · {dateShort(weekStart)} – {dateShort(weekEnd)}</span><h2>Work planner</h2><p>Only your assignments appear here. Unfinished work carries forward each day.</p></div><div className="weekly-efficiency"><b>{efficiency}%</b><small>Weekly completion</small><span>{completed}/{total} work items</span></div></div>
+    <div className="weekly-work-tabs"><button className={view==='assigned_to_you'?'selected':''} onClick={()=>setView('assigned_to_you')}>Work assigned to you</button><button className={view==='assigned_by_you'?'selected':''} onClick={()=>setView('assigned_by_you')}>Work you assigned</button><span className="weekly-work-week">Resets Monday · Mon–Sat</span></div>
+    {error&&<p className="weekly-work-error">Weekly tracking needs the latest migration, or access was denied: {error}</p>}
+    {projectGroups.length>0&&<div className="weekly-project-grid">{projectGroups.map(group=><article className="weekly-project-card" key={group.id}><button className="weekly-project-title" onClick={()=>onOpenProject(group.id)}>{group.name}<ArrowUpRight size={14}/></button><ul>{weekTasks.filter(t=>t.project_id===group.id).map(task=><li key={task.id}><span className={'weekly-mini-status '+statusAt(task,scheduledDate(task))}/><span>{task.title}<small>{task.due_date?'Due '+dateShort(task.due_date):task.start_date?'Starts '+dateShort(task.start_date):'Carryover'} · {displayFor(task).stage}</small></span><b>{task.status==='done'?'Done':task.due_date&&task.due_date<today?'Overdue':statusAt(task,scheduledDate(task))==='ongoing'?'Ongoing':'Pending'}</b></li>)}</ul></article>)}</div>}
+    <div className="weekly-day-list"><div className="weekly-day-heading"><h3>Daily work list</h3><span>Past unmarked days become “Not started” automatically.</span></div><div className="weekly-day-grid">{days.map(date=>{
+      const items=dayTasks(date)
+      return <section className={'weekly-day-card '+(date===today?'today':'')} key={date}><header><b>{dayName(date)}</b><span>{dateShort(date)}</span></header>
+        {items.length===0?<p className="weekly-day-empty">No work scheduled</p>:items.map(task=>{
+          const st=statusAt(task,date),info=displayFor(task),key=updateKey(task.id,date),readOnly=view==='assigned_by_you'||date!==today
+          return <article className="weekly-day-task" key={task.id}><div className="weekly-task-meta"><b>{info.project}</b><small>{info.stage}{task.due_date?' · Due '+dateShort(task.due_date):''}</small></div><div className="weekly-task-name">{task.title}</div>{view==='assigned_by_you'&&<div className="weekly-assignee">Assigned to: {nameFor(task)}</div>}
+            <div className="weekly-task-status"><select aria-label={'Status for '+task.title+' on '+date} disabled={readOnly||saving===key} value={st} onChange={e=>void setStatus(task,date,e.target.value as DailyWorkStatus)}><option value="not_started">Not started</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option></select>{saving===key&&<LoaderCircle size={13} className="spin"/>}</div>
+            {date<today&&st==='not_started'&&<small className="weekly-carry-note">Carried forward</small>}
+          </article>
+        })}
+      </section>
+    })}</div></div>
+    {!weekTasks.length&&<div className="weekly-empty"><CalendarDays size={20}/><span>No assigned work falls within this week yet. Add dates and assign tasks to project members to populate this planner.</span></div>}
+    {!loaded&&<small className="muted">Loading daily updates…</small>}
+  </section>
+}
+
+function GlobalDashboard({projects,currentUserId,currentUserEmail,companyMembers,onOpenProject,onCreateProject}:{projects:Project[];currentUserId:string;currentUserEmail:string;companyMembers:CompanyMember[];onOpenProject:(id:string)=>void;onCreateProject:()=>void}) {
   const [stages,setStages]=useState<Stage[]>([])
   const [tasks,setTasks]=useState<Task[]>([])
   const [loading,setLoading]=useState(true)
@@ -1011,6 +1140,7 @@ function GlobalDashboard({projects,onOpenProject,onCreateProject}:{projects:Proj
   },[projects.map(p=>p.id).join('|')])
   return <section className="global-dashboard">
     <div className="dashboard-welcome"><div><span className="eyebrow"><span className="live-dot"/> CKPC PROJECT HUB</span><h1>Your projects, <span>at a glance.</span></h1><p>Track every stage and see ongoing, pending and completed work across your projects.</p></div><button className="primary" onClick={onCreateProject}><Plus size={16}/> New project</button></div>
+    <WeeklyWorkDashboard projects={projects} tasks={tasks} stages={stages} currentUserId={currentUserId} companyMembers={companyMembers} onOpenProject={onOpenProject} onTaskStatusChanged={(taskId,status)=>setTasks(current=>current.map(task=>task.id===taskId?{...task,status}:task))}/>
     <div className="dashboard-summary"><div><span>PROJECTS</span><b>{projects.length}</b></div><div><span>ACTIVE TASKS</span><b>{tasks.filter(t=>t.status==='in_progress').length}</b></div><div><span>PENDING TASKS</span><b>{tasks.filter(t=>t.status==='todo').length}</b></div><div><span>COMPLETED</span><b>{tasks.filter(t=>t.status==='done').length}</b></div></div>
     {loading?<div className="panel dashboard-loading"><LoaderCircle className="spin"/> Loading project summaries…</div>:projects.length===0?<div className="panel dashboard-empty"><FolderKanban size={28}/><h2>No projects yet</h2><p>Create your first project to see stages and task progress here.</p><button className="primary" onClick={onCreateProject}><Plus size={16}/> Create project</button></div>:<div className="dashboard-project-grid">{projects.map((project,index)=>{
       const ps=stages.filter(s=>s.project_id===project.id),pt=tasks.filter(t=>t.project_id===project.id),done=pt.filter(t=>t.status==='done').length,pct=pt.length?Math.round(done/pt.length*100):0
