@@ -165,10 +165,6 @@ export default function App() {
     if (selectedCompany?.slug) setCompanySlug(selectedCompany.slug)
   }, [selectedCompany?.id])
   useEffect(() => {
-    if (!session?.user) return
-    try { localStorage.setItem('projecthub-selected-workspace-id', selectedCompanyId ?? 'personal') } catch { /* ignore storage */ }
-  }, [selectedCompanyId, session?.user?.id])
-  useEffect(() => {
     if (!session?.user && !new URLSearchParams(window.location.search).get('company')) {
       setCompanySlug('')
       setInvitedBrand(null)
@@ -261,7 +257,10 @@ export default function App() {
       }
       setCompanyCreateName(''); setCompanyCreateSlug(''); setCompanyCreateLogo(null)
       await loadCompanies()
-      if (data) setSelectedCompanyId(data as string)
+      if (data) {
+        setSelectedCompanyId(data as string)
+        try { localStorage.setItem('projecthub-selected-workspace-id', data as string) } catch { /* ignore storage */ }
+      }
       setTab('company')
       setNotice('Company created. You are its first admin. Your existing projects remain personal until you link them.' + logoWarning)
     }
@@ -670,7 +669,7 @@ export default function App() {
   return <div className={`app-shell ${prefs.mode === 'light' && !displayCompany ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
     <aside className="sidebar">
       <div className="brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={19}/></div>}<span>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
-      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>0&&<select aria-label="Switch workspace" value={selectedCompanyId ?? ''} onChange={e=>setSelectedCompanyId(e.target.value||null)}><option value="">Personal workspace</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
+      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>0&&<select aria-label="Switch workspace" value={selectedCompanyId ?? ''} onChange={e=>{const value=e.target.value||null;setSelectedCompanyId(value);try{localStorage.setItem('projecthub-selected-workspace-id',value??'personal')}catch{/* ignore storage */}}}><option value="">Personal workspace</option>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
       <div className="nav-label">WORKSPACE</div>
       <button className={`nav-item ${tab==='home'?'active':''}`} title="Dashboard" onClick={()=>setTab('home')}><LayoutDashboard size={17}/> Dashboard</button>
       <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><Activity size={17}/> Project overview</button>
@@ -895,7 +894,7 @@ function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCo
   const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64)
   return <section className="panel company-settings-panel">
     <div className="panel-heading"><div><h2>Companies & workspaces</h2><p>Create separate company spaces. Existing projects remain personal until an admin links them.</p></div><Building2 size={20}/></div>
-    {companies.length>0&&<div className="company-switch-row"><label>Active workspace<select value={selectedCompanyId??''} onChange={e=>onSelect(e.target.value||null)}><option value="">Personal workspace</option>{companies.map(company=><option key={company.id} value={company.id}>{company.name} · {company.role==='admin'?'Admin':'Employee'}</option>)}</select></label></div>}
+    {companies.length>0&&<div className="company-switch-row"><label>Active workspace<select value={selectedCompanyId??''} onChange={e=>{const value=e.target.value||null;onSelect(value);try{localStorage.setItem('projecthub-selected-workspace-id',value??'personal')}catch{/* ignore storage */}}}><option value="">Personal workspace</option>{companies.map(company=><option key={company.id} value={company.id}>{company.name} · {company.role==='admin'?'Admin':'Employee'}</option>)}</select></label></div>}
     <form className="form-stack company-create-form" onSubmit={onCreate}>
       <h3>Create a company</h3>
       <div className="form-grid"><label>Company name<input value={companyName} onChange={e=>{setCompanyName(e.target.value);setCompanySlug(slugify(e.target.value))}} placeholder="e.g. Brickmen" maxLength={120} required/></label><label>Company login/invitation URL name<input value={companySlug} onChange={e=>setCompanySlug(slugify(e.target.value))} placeholder="brickmen" pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]" minLength={3} maxLength={64} required/><small className="muted">Used to show the right branding on company invitation and login links.</small></label></div>
