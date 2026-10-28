@@ -1,10 +1,19 @@
 # ProjectHub — collaboration starter (feature-upgraded)
 
-ProjectHub is a responsive React + TypeScript + Supabase web app. This update adds a project task workflow, Kanban board, Gantt-style timeline, team role management for existing accounts, and appearance customisation. It is not a complete Bitrix24 clone and is not deployed publicly by this archive.
+ProjectHub is a responsive React + TypeScript + Supabase web app. This branch adds company workspaces alongside the existing project-based structure, a company-level stage/deadline table and Gantt timeline, company invitations, logo/theme settings, attendance and leave records, and a scheduled WhatsApp attendance integration. It is not a complete Bitrix24 clone. Existing projects remain personal unless a company admin explicitly links them.
 
 ## Current features
 
-- Supabase email/password sign-up and sign-in.
+- Supabase email/password sign-up and sign-in, Google OAuth, forgot-password email, and password reset.
+- Browser password-manager save/autofill support via standard email/password autocomplete attributes.
+- Optional company workspaces created from Settings; each company has its own name, slug, logo, theme, admins, and employees.
+- Company invitation emails for partner/admin or employee roles (Edge Function + Resend configuration required).
+- Company profile with an Excel-style project/stage/deadline table and an extended stage Gantt; the company profile does not query or display task-level records.
+- Admin-only company profile edits, member roles/job titles, project linking/unlinking, and project assignments.
+- Existing personal projects remain personal until an admin links them. Linking/unlinking affects only the company relationship, not project/task/stage data.
+- Six shared theme presets and company-scoped theme color customization, logo, and invitation/login branding.
+- Employee self-check-in (office / work from home), a one-hour correction window, leave date ranges, and an admin-only employee attendance schedule.
+- Optional 10:00 AM India-time WhatsApp attendance reminders through the WhatsApp Groups API (credentials, scheduled job, eligible business account, and API-enabled group are required).
 - Private multi-project dashboard and project creation.
 - Project discussion comments.
 - Tasks with status, priority, start date and due date.
@@ -19,10 +28,12 @@ ProjectHub is a responsive React + TypeScript + Supabase web app. This update ad
 
 ## Important limitations
 
-- **Email invitations for people who have not registered are not implemented.** The Team page can add existing accounts only. To email first-time invitations, configure a Supabase Edge Function (server-side) and email provider; never put a service-role key in the browser.
+- Company invitation email depends on deploying the invite-company-member Edge Function and setting the Resend sender/API secrets as described below. Never put service-role or WhatsApp access tokens in frontend code.
 - Gantt is a lightweight timeline view, not a full dependency-aware scheduler. Task date editing and dependency links are not implemented yet.
 - File storage, real-time chat, email/push notifications, recurring tasks, time tracking, CRM, automation rules, and a full activity/audit feed are not implemented in this release.
-- Personalisation is saved in the current browser. It is not synced across devices yet.
+- Personal appearance preferences remain browser-local when no company is active. Company profile colors and logos are stored in Supabase and shared with members of that company only.
+- Google OAuth, password-reset delivery, and company-invitation emails need provider credentials/redirect URLs. They are not usable until the Supabase dashboard and secrets are configured.
+- WhatsApp message delivery is not active until the Edge Function, secrets, SQL schedule, and an eligible WhatsApp Groups API destination are configured and tested. The official Groups API does not let an arbitrary personal WhatsApp group be assumed usable.
 - The app has not undergone a production security audit or full end-to-end testing. Test with separate accounts before inviting a real team.
 
 ## Update your existing Supabase project
