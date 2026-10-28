@@ -680,3 +680,5 @@
  .weekly-day-heading { align-items:flex-start; flex-direction:column; }
  .weekly-work-week { width:100%; margin-left:0; }
 }
+
+.company-phone-input { min-width:145px; }
