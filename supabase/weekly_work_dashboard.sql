@@ -21,10 +21,12 @@ create table if not exists public.task_daily_updates (
     check (status in ('not_started','ongoing','completed')),
   updated_at timestamptz not null default now(),
   updated_by uuid not null references auth.users(id) on delete restrict,
+  is_automatic boolean not null default false,
   unique (task_id, user_id, work_date),
   check (extract(isodow from week_start) = 1),
   check (week_start <= work_date and work_date < week_start + 7)
 );
+alter table public.task_daily_updates add column if not exists is_automatic boolean not null default false;
 create index if not exists task_daily_updates_user_week_idx
   on public.task_daily_updates(user_id, week_start, work_date);
 create index if not exists task_daily_updates_task_date_idx
@@ -207,3 +209,39 @@ as $$
 $$;
 revoke all on function public.get_company_daily_work_digest(date) from public, anon, authenticated;
 grant execute on function public.get_company_daily_work_digest(date) to service_role;
+
+
+-- Materialize the default "not started" status after each workday, even if the employee
+-- does not open the dashboard. Completed items are not carried into later days.
+create or replace function public.materialize_daily_work_defaults(p_date date default (((now() at time zone 'Asia/Kolkata')::date) - 1))
+returns integer
+language plpgsql security definer set search_path = ''
+as $$
+declare inserted_count integer := 0;
+begin
+  if extract(isodow from p_date) not between 1 and 6 then return 0; end if;
+  insert into public.task_daily_updates(task_id,user_id,work_date,week_start,status,updated_by,is_automatic)
+  select t.id, t.assigned_to_user_id, p_date,
+    p_date - (extract(isodow from p_date)::int - 1),
+    'not_started', t.assigned_to_user_id, true
+  from public.project_tasks t
+  where t.assigned_to_user_id is not null
+    and t.status <> 'done'
+    and coalesce(t.start_date,t.due_date) is not null
+    and coalesce(t.start_date,t.due_date) <= p_date
+    and not exists (
+      select 1 from public.task_daily_updates existing
+      where existing.task_id=t.id and existing.user_id=t.assigned_to_user_id and existing.work_date=p_date
+    )
+    and not exists (
+      select 1 from public.task_daily_updates completed
+      where completed.task_id=t.id and completed.user_id=t.assigned_to_user_id
+        and completed.week_start=p_date - (extract(isodow from p_date)::int - 1)
+        and completed.work_date<p_date and completed.status='completed'
+    );
+  get diagnostics inserted_count = row_count;
+  return inserted_count;
+end;
+$$;
+revoke all on function public.materialize_daily_work_defaults(date) from public, anon, authenticated;
+grant execute on function public.materialize_daily_work_defaults(date) to service_role;
