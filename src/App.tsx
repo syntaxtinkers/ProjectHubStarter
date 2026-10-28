@@ -112,6 +112,7 @@ export default function App() {
   const [invitedBrand, setInvitedBrand] = useState<Company | null>(null)
   const [companyCreateName, setCompanyCreateName] = useState('')
   const [companyCreateSlug, setCompanyCreateSlug] = useState('')
+  const [companyCreateLogo, setCompanyCreateLogo] = useState<File | null>(null)
   const [companyInviteEmail, setCompanyInviteEmail] = useState('')
   const [companyInviteRole, setCompanyInviteRole] = useState<CompanyRole>('employee')
   const [linkProjectId, setLinkProjectId] = useState('')
@@ -229,15 +230,32 @@ export default function App() {
   async function createCompany(e: FormEvent) {
     e.preventDefault()
     if (!supabase || !session?.user || !companyCreateName.trim() || !companyCreateSlug.trim()) return
+    if (companyCreateLogo && (!companyCreateLogo.type.startsWith('image/') || companyCreateLogo.size > 3 * 1024 * 1024)) {
+      setNotice('Choose an image file no larger than 3 MB for the company logo.')
+      return
+    }
     setBusy(true); setNotice('')
     const { data, error } = await supabase.rpc('create_company', { p_name: companyCreateName.trim(), p_slug: companyCreateSlug.trim().toLowerCase(), p_logo_url: null })
     if (error) setNotice('Could not create company: ' + error.message)
     else {
-      setCompanyCreateName(''); setCompanyCreateSlug('')
+      let logoWarning = ''
+      const newCompanyId = data as string
+      if (companyCreateLogo && newCompanyId) {
+        const safeName = companyCreateLogo.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+        const path = `${newCompanyId}/${Date.now()}-${safeName}`
+        const { error: uploadError } = await supabase.storage.from('company-logos').upload(path, companyCreateLogo, { upsert: true, contentType: companyCreateLogo.type })
+        if (uploadError) logoWarning = ' Company was created, but logo upload failed: ' + uploadError.message
+        else {
+          const { data: publicLogo } = supabase.storage.from('company-logos').getPublicUrl(path)
+          const { error: logoError } = await supabase.from('companies').update({ logo_url: publicLogo.publicUrl, updated_at: new Date().toISOString() }).eq('id', newCompanyId)
+          if (logoError) logoWarning = ' Company was created, but logo saving failed: ' + logoError.message
+        }
+      }
+      setCompanyCreateName(''); setCompanyCreateSlug(''); setCompanyCreateLogo(null)
       await loadCompanies()
       if (data) setSelectedCompanyId(data as string)
       setTab('company')
-      setNotice('Company created. You are its first admin. Your existing projects remain personal until you link them.')
+      setNotice('Company created. You are its first admin. Your existing projects remain personal until you link them.' + logoWarning)
     }
     setBusy(false)
   }
@@ -666,7 +684,7 @@ export default function App() {
         {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
         tab==='company' ? (selectedCompany ? <CompanyProfile company={selectedCompany} isAdmin={isCompanyAdmin} members={companyMembers} rows={companyRows} assignments={companyAssignments} availableProjects={projects} busy={busy} onSave={saveCompanyProfile} onLogoUpload={uploadCompanyLogo} onInvite={inviteCompanyMember} onLinkProject={linkProjectToCompany} onUnlinkProject={unlinkProjectFromCompany} onAssign={assignCompanyProject} onMemberUpdate={updateCompanyMember} onRemoveMember={removeCompanyMember} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} inviteEmail={companyInviteEmail} setInviteEmail={setCompanyInviteEmail} inviteRole={companyInviteRole} setInviteRole={setCompanyInviteRole} assignProjectId={assignProjectId} setAssignProjectId={setAssignProjectId} assignEmployeeId={assignEmployeeId} setAssignEmployeeId={setAssignEmployeeId}/> : <section className="panel"><h2>No company selected</h2><p>Create a company from Settings, or accept a company invitation from your email.</p><button className="primary" onClick={()=>setTab('settings')}>Open Settings</button></section>) :
         tab==='attendance' ? (selectedCompany ? <AttendancePage company={selectedCompany} currentUser={session.user} isAdmin={isCompanyAdmin}/> : <section className="panel"><h2>No company selected</h2><p>Select a company first.</p></section>) :
-        tab==='settings' ? <><CompanySettings companies={companies} selectedCompanyId={selectedCompanyId} onSelect={setSelectedCompanyId} companyName={companyCreateName} setCompanyName={setCompanyCreateName} companySlug={companyCreateSlug} setCompanySlug={setCompanyCreateSlug} onCreate={createCompany} busy={busy}/><Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''} companyThemeLocked={Boolean(selectedCompany)} onOpenCompany={()=>setTab('company')}/></> :
+        tab==='settings' ? <><CompanySettings companies={companies} selectedCompanyId={selectedCompanyId} onSelect={setSelectedCompanyId} companyName={companyCreateName} setCompanyName={setCompanyCreateName} companySlug={companyCreateSlug} setCompanySlug={setCompanyCreateSlug} logoFile={companyCreateLogo} setLogoFile={setCompanyCreateLogo} onCreate={createCompany} busy={busy}/><Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''} companyThemeLocked={Boolean(selectedCompany)} onOpenCompany={()=>setTab('company')}/></> :
         !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
           <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> PROJECT WORKSPACE</div><h1>{selected.name}</h1><p>{selected.description || 'A shared space for your team to plan, discuss, and get things done.'}</p></div><div className="heading-actions"><span className={`role-badge ${selected.role==='owner'?'role-owner':''}`}><ShieldCheck size={13}/> {roleLabels[selected.role ?? 'viewer']}</span>{canEdit(selected.role)&&tab==='stages'&&<button className="primary" onClick={openNewStage}><Plus size={16}/> New stage</button>}{canEdit(selected.role)&&tab==='stage_detail'&&selectedStage&&<button className="primary" onClick={()=>openCreateTask(selectedStage.id)}><Plus size={16}/> New task</button>}<button className="outline-button" onClick={()=>exportProjectExcel(selected.name,stages,tasks)} title="Export this project to Excel"><FolderKanban size={14}/> Export Excel</button><button className="outline-button" onClick={()=>exportProjectPdf(selected.name,stages,tasks,taskFields)} title="Print or save this project as a PDF"><FileDown size={14}/> Export PDF</button>{canEdit(selected.role)&&<button className="outline-button" onClick={()=>void duplicateProject()} title="Duplicate this project with all stages and tasks"><FolderKanban size={14}/> Duplicate project</button>}{canEdit(selected.role)&&<button className="outline-button" onClick={openProjectEdit}><Pencil size={14}/> Edit project</button>}{canEdit(selected.role)&&<button className="outline-button danger-outline" disabled={busy} onClick={()=>void removeProjectFromWorkspace()} title="Remove this project from your list without deleting its data"><Trash2 size={14}/> Remove project</button>}</div></div>
@@ -865,7 +883,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
  </section>
 }
 
-function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCompanyName,companySlug,setCompanySlug,onCreate,busy}:{companies:Company[];selectedCompanyId:string|null;onSelect:(id:string|null)=>void;companyName:string;setCompanyName:(value:string)=>void;companySlug:string;setCompanySlug:(value:string)=>void;onCreate:(e:FormEvent)=>void;busy:boolean}) {
+function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCompanyName,companySlug,setCompanySlug,logoFile,setLogoFile,onCreate,busy}:{companies:Company[];selectedCompanyId:string|null;onSelect:(id:string|null)=>void;companyName:string;setCompanyName:(value:string)=>void;companySlug:string;setCompanySlug:(value:string)=>void;logoFile:File|null;setLogoFile:(file:File|null)=>void;onCreate:(e:FormEvent)=>void;busy:boolean}) {
   const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64)
   return <section className="panel company-settings-panel">
     <div className="panel-heading"><div><h2>Companies & workspaces</h2><p>Create separate company spaces. Existing projects remain personal until an admin links them.</p></div><Building2 size={20}/></div>
@@ -873,6 +891,7 @@ function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCo
     <form className="form-stack company-create-form" onSubmit={onCreate}>
       <h3>Create a company</h3>
       <div className="form-grid"><label>Company name<input value={companyName} onChange={e=>{setCompanyName(e.target.value);setCompanySlug(slugify(e.target.value))}} placeholder="e.g. Brickmen" maxLength={120} required/></label><label>Company login/invitation URL name<input value={companySlug} onChange={e=>setCompanySlug(slugify(e.target.value))} placeholder="brickmen" pattern="[a-z0-9][a-z0-9-]{1,62}[a-z0-9]" minLength={3} maxLength={64} required/><small className="muted">Used to show the right branding on company invitation and login links.</small></label></div>
+      <label className="company-logo-input-label">Company logo (optional)<input type="file" accept="image/*" onChange={e=>setLogoFile(e.target.files?.[0]??null)}/>{logoFile&&<small className="muted">Selected: {logoFile.name}</small>}<small className="muted">Image file up to 3 MB. You can change it later in Company profile.</small></label>
       <div className="modal-note"><ShieldCheck size={15}/> You become the first company admin. Admins can invite partners as admins and staff as employees.</div>
       <div><button className="primary" disabled={busy||!companyName.trim()||companySlug.trim().length<3}><Plus size={15}/>{busy?'Creating…':'Create company'}</button></div>
     </form>
