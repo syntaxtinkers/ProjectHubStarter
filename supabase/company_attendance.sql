@@ -132,6 +132,7 @@ create policy "Company admins can read notification delivery status" on public.c
 for select to authenticated using (public.is_company_admin(company_id));
 
 grant select on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to authenticated;
+grant all privileges on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to service_role;
 grant select, insert, update on public.company_attendance_notification_runs to service_role;
 revoke insert, update, delete on public.company_attendance, public.company_leave, public.company_whatsapp_settings from authenticated;
 grant insert (company_id, user_id, attendance_date, work_mode) on public.company_attendance to authenticated;
