@@ -343,7 +343,7 @@ export default function App() {
       if (error) { setNotice('Could not update employee: ' + error.message); return }
     }
     if (phone_e164 !== undefined) {
-      const phone = phone_e164.trim()
+      const phone = (phone_e164 ?? '').trim()
       if (phone && !/^\+[1-9][0-9]{7,14}$/.test(phone)) { setNotice('Enter the WhatsApp number in international E.164 format, e.g. +919876543210.'); return }
       const result = phone
         ? await supabase.from('company_member_contacts').upsert({company_id:selectedCompany.id,user_id:member.user_id,phone_e164:phone,updated_by:session.user.id,updated_at:new Date().toISOString()},{onConflict:'company_id,user_id'})
