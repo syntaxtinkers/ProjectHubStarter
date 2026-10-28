@@ -334,7 +334,7 @@ export default function App() {
     else { await loadCompanyData(selectedCompany.id); setNotice('Employee assigned to the project.') }
     setBusy(false)
   }
-  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title' | 'phone_e164'>>) {
+  async function updateCompanyMember(member: CompanyMember, patch: Partial<Pick<CompanyMember, 'role' | 'full_name' | 'job_title' | 'phone_e164' | 'whatsapp_opted_in'>>) {
     if (!supabase || !selectedCompany || !isCompanyAdmin) return
     const { phone_e164, whatsapp_opted_in, ...profilePatch } = patch
     if (member.user_id === session.user.id && Object.keys(profilePatch).length) return
