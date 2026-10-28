@@ -178,6 +178,7 @@ export default function App() {
       if (error) { setAuthMessage(error.message); return }
       const row = Array.isArray(data) ? data[0] : data
       if (row) setInvitedBrand({ ...row, theme: { ...defaultCompanyTheme, ...(row.theme ?? {}) } } as Company)
+      else setInvitedBrand(null)
     })
     return () => { alive = false }
   }, [companySlug])
@@ -360,7 +361,7 @@ export default function App() {
     } else if (authMode === 'reset') {
       const { error } = await supabase.auth.updateUser({ password })
       if (error) setAuthMessage(error.message)
-      else { setPassword(''); setAuthMode('signin'); setAuthMessage('Password updated. You can now sign in with your new password.') }
+      else { await supabase.auth.signOut(); setPassword(''); setAuthMode('signin'); setAuthMessage('Password updated. You can now sign in with your new password.') }
     } else if (authMode === 'google') {
       const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href } })
       if (error) setAuthMessage(error.message)
@@ -640,7 +641,7 @@ export default function App() {
     </main>
   )
 
-  return <div className={`app-shell ${prefs.mode === 'light' ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
+  return <div className={`app-shell ${prefs.mode === 'light' && !displayCompany ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
     <aside className="sidebar">
       <div className="brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={19}/></div>}<span>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
       <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>1&&<select aria-label="Switch company" value={selectedCompanyId ?? ''} onChange={e=>setSelectedCompanyId(e.target.value||null)}>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
