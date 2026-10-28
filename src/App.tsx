@@ -30,6 +30,7 @@ type AttendanceRecord = { id: string; company_id: string; user_id: string; atten
 type CompanyLeaveRecord = { id: string; company_id: string; user_id: string; start_date: string; end_date: string; reason: string | null; status: 'active' | 'cancelled'; created_at: string; updated_at: string }
 type AttendanceScheduleRow = { user_id: string; employee_name: string; employee_email: string; attendance_date: string; attendance_status: 'working' | 'on_leave' | 'not_signed_in'; work_mode: string | null; started_at: string | null; editable_until: string | null; is_frozen: boolean; leave_start: string | null; leave_end: string | null; leave_reason: string | null }
 type CompanyWhatsAppSettings = { company_id: string; group_name: string; group_id: string; enabled: boolean; timezone: string; updated_by: string | null; updated_at: string }
+type CompanyWeeklyMetric = { user_id:string; employee_name:string; role:string; total_work:number; completed_work:number; completion_percent:number }
 type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'company' | 'attendance' | 'settings'
 
 const roleLabels: Record<Role, string> = { owner: 'Owner / Main editor', editor: 'Editor', commenter: 'Commenter', viewer: 'Viewer' }
@@ -917,7 +918,10 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
  const [name,setName]=useState(company.name)
  const [theme,setTheme]=useState<CompanyTheme>({...defaultCompanyTheme,...(company.theme??{})})
  const [editName,setEditName]=useState(false)
+ const [weeklyMetrics,setWeeklyMetrics]=useState<CompanyWeeklyMetric[]>([])
+ const [weeklyMetricsError,setWeeklyMetricsError]=useState('')
  useEffect(()=>{setName(company.name);setTheme({...defaultCompanyTheme,...(company.theme??{})})},[company.id,company.name,JSON.stringify(company.theme)])
+ useEffect(()=>{let alive=true;async function load(){if(!isAdmin||!supabase){setWeeklyMetrics([]);return}const week=localIsoDate(mondayOf(new Date()));const {data,error}=await supabase.rpc('company_weekly_completion',{p_company_id:company.id,p_week_start:week});if(!alive)return;if(error){setWeeklyMetricsError(error.message);setWeeklyMetrics([])}else{setWeeklyMetricsError('');setWeeklyMetrics((data??[]) as CompanyWeeklyMetric[])}}void load();return()=>{alive=false}},[company.id,isAdmin])
  const projectList=Array.from(new Map(rows.map(row=>[row.project_id,{id:row.project_id,name:row.project_name,description:row.project_description}])).values())
  const linkedIds=new Set(projectList.map(p=>p.id))
  const linkable=availableProjects.filter(p=>!linkedIds.has(p.id))
@@ -937,6 +941,7 @@ function CompanyProfile({company,isAdmin,members,rows,assignments,availableProje
     {isAdmin&&<div className="company-profile-actions"><label className="outline-button upload-logo-button"><Upload size={15}/> Upload logo<input type="file" accept="image/*" hidden onChange={e=>{const f=e.target.files?.[0];if(f)void onLogoUpload(f);e.currentTarget.value=''}}/></label><button className="outline-button" onClick={()=>setEditName(v=>!v)}><Pencil size={14}/> Edit company name</button></div>}
    </div>
    {isAdmin&&editName&&<form className="panel form-stack company-name-editor" onSubmit={e=>{e.preventDefault();if(name.trim())void onSave({name:name.trim()}).then(()=>setEditName(false))}}><label>Company name<input value={name} onChange={e=>setName(e.target.value)} maxLength={120} required/></label><div><button className="primary" disabled={busy||!name.trim()}><Save size={14}/> Save company name</button></div></form>}
+   {isAdmin&&<section className="panel company-efficiency-panel"><div className="panel-heading"><div><h2>Weekly employee completion</h2><p>Admin-only · completed assignments divided by assigned work for this week, including unfinished carryovers.</p></div><Activity size={19}/></div>{weeklyMetricsError?<p className="muted tiny">Apply supabase/weekly_work_dashboard.sql to enable this report: {weeklyMetricsError}</p>:<div className="compact-table-wrap"><table className="compact-table"><thead><tr><th>Employee / admin</th><th>Role</th><th>Completed</th><th>Assigned this week</th><th>Completion</th></tr></thead><tbody>{weeklyMetrics.map(metric=><tr key={metric.user_id}><td><b>{metric.employee_name}</b></td><td>{metric.role}</td><td>{metric.completed_work}</td><td>{metric.total_work}</td><td><div className="efficiency-cell"><b>{metric.completion_percent}%</b><span><i style={{width:metric.completion_percent+'%'}}/></span></div></td></tr>)}{weeklyMetrics.length===0&&<tr><td colSpan={5}>No assigned work recorded for this week yet.</td></tr>}</tbody></table></div>}</section>}
    <div className="company-metric-row"><div className="company-metric"><span>PROJECTS LINKED</span><b>{projectList.length}</b></div><div className="company-metric"><span>STAGES SHOWN</span><b>{uniqueRows.length}</b></div><div className="company-metric"><span>EMPLOYEES & ADMINS</span><b>{members.length}</b></div><div className="company-metric"><span>UPCOMING STAGE ENDS</span><b>{uniqueRows.filter(r=>r.stage_end&&r.stage_end>=new Date().toISOString().slice(0,10)).length}</b></div></div>
    <section className="panel">
     <div className="panel-heading"><div><h2>Combined project schedule</h2><p>Project and stage dates only. Task-level data is intentionally not shown here.</p></div><CalendarRange size={20}/></div>
