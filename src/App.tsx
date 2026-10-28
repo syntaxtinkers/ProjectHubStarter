@@ -26,7 +26,11 @@ type Company = { id: string; name: string; slug: string; logo_url: string | null
 type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; joined_at: string }
 type CompanyProjectRow = { project_id: string; project_name: string; project_description: string | null; stage_id: string | null; stage_name: string | null; stage_start: string | null; stage_end: string | null; stage_order: number; assigned_employees: string[] }
 type CompanyAssignment = { company_id: string; project_id: string; user_id: string; assigned_by: string; assigned_at: string }
-type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'company' | 'settings'
+type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'work_from_home'; started_at: string; editable_until: string; frozen_at: string | null }
+type CompanyLeaveRecord = { id: string; company_id: string; user_id: string; start_date: string; end_date: string; reason: string | null; status: 'active' | 'cancelled'; created_at: string; updated_at: string }
+type AttendanceScheduleRow = { user_id: string; employee_name: string; employee_email: string; attendance_date: string; attendance_status: 'working' | 'on_leave' | 'not_signed_in'; work_mode: string | null; started_at: string | null; editable_until: string | null; is_frozen: boolean; leave_start: string | null; leave_end: string | null; leave_reason: string | null }
+type CompanyWhatsAppSettings = { company_id: string; group_name: string; group_id: string; enabled: boolean; timezone: string; updated_by: string | null; updated_at: string }
+type Tab = 'home' | 'overview' | 'stages' | 'stage_detail' | 'calendar' | 'team' | 'discussion' | 'company' | 'attendance' | 'settings'
 
 const roleLabels: Record<Role, string> = { owner: 'Owner / Main editor', editor: 'Editor', commenter: 'Commenter', viewer: 'Viewer' }
 const colors = ['violet', 'blue', 'mint', 'orange']
@@ -648,6 +652,7 @@ export default function App() {
       <button className={`nav-item ${tab==='team'?'active':''}`} onClick={()=>setTab('team')}><Users size={17}/> Team & access</button>
       <button className={`nav-item ${tab==='discussion'?'active':''}`} onClick={()=>setTab('discussion')}><MessageCircle size={17}/> Discussion <span className="nav-count">{comments.length}</span></button>
       {companies.length > 0 && <button className={`nav-item ${tab==='company'?'active':''}`} onClick={()=>setTab('company')}><Building2 size={17}/> Company profile</button>}
+      {selectedCompany && <button className={`nav-item ${tab==='attendance'?'active':''}`} onClick={()=>setTab('attendance')}><Clock3 size={17}/>{isCompanyAdmin?'Attendance schedule':'My attendance'}</button>}
       <button className={`nav-item ${tab==='settings'?'active':''}`} onClick={()=>setTab('settings')}><Settings2 size={17}/> Settings</button>
       <div className="project-list-head"><span className="nav-label">YOUR PROJECTS</span><button className="icon-button small" onClick={()=>setShowCreate(true)} title="Create project"><Plus size={16}/></button></div>
       <div className="sidebar-projects">{filteredProjects.slice(0,10).map((p,i)=><button key={p.id} className={`project-nav ${selectedId===p.id?'chosen':''}`} onClick={()=>{setSelectedId(p.id);setTab('stages')}}><span className={`project-dot ${colors[i%colors.length]}`}/><span className="truncate">{p.name}</span></button>)}{filteredProjects.length===0&&<p className="sidebar-empty">No matching projects.</p>}</div>
@@ -659,6 +664,7 @@ export default function App() {
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
         {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
         tab==='company' ? (selectedCompany ? <CompanyProfile company={selectedCompany} isAdmin={isCompanyAdmin} members={companyMembers} rows={companyRows} assignments={companyAssignments} availableProjects={projects} busy={busy} onSave={saveCompanyProfile} onLogoUpload={uploadCompanyLogo} onInvite={inviteCompanyMember} onLinkProject={linkProjectToCompany} onUnlinkProject={unlinkProjectFromCompany} onAssign={assignCompanyProject} onMemberUpdate={updateCompanyMember} onRemoveMember={removeCompanyMember} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} inviteEmail={companyInviteEmail} setInviteEmail={setCompanyInviteEmail} inviteRole={companyInviteRole} setInviteRole={setCompanyInviteRole} assignProjectId={assignProjectId} setAssignProjectId={setAssignProjectId} assignEmployeeId={assignEmployeeId} setAssignEmployeeId={setAssignEmployeeId}/> : <section className="panel"><h2>No company selected</h2><p>Create a company from Settings, or accept a company invitation from your email.</p><button className="primary" onClick={()=>setTab('settings')}>Open Settings</button></section>) :
+        tab==='attendance' ? (selectedCompany ? <AttendancePage company={selectedCompany} currentUser={session.user} isAdmin={isCompanyAdmin}/> : <section className="panel"><h2>No company selected</h2><p>Select a company first.</p></section>) :
         tab==='settings' ? <><CompanySettings companies={companies} selectedCompanyId={selectedCompanyId} onSelect={setSelectedCompanyId} companyName={companyCreateName} setCompanyName={setCompanyCreateName} companySlug={companyCreateSlug} setCompanySlug={setCompanyCreateSlug} onCreate={createCompany} busy={busy}/><Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''} companyThemeLocked={Boolean(selectedCompany)} onOpenCompany={()=>setTab('company')}/></> :
         !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
@@ -697,6 +703,161 @@ export default function App() {
   </div>
 }
 
+
+
+function indiaDate(date = new Date()) {
+ const parts = new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date)
+ const part=(key:string)=>parts.find(x=>x.type===key)?.value??''
+ return `${part('year')}-${part('month')}-${part('day')}`
+}
+function indiaTime(value:string|null|undefined) {
+ if(!value)return '—'
+ return new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:true}).format(new Date(value))
+}
+function shortDate(value:string|null|undefined) {
+ if(!value)return '—'
+ return new Date(value+'T00:00:00').toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'})
+}
+function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUser:{id:string;email?:string};isAdmin:boolean}) {
+ const [scheduleDate,setScheduleDate]=useState(indiaDate())
+ const [myAttendance,setMyAttendance]=useState<AttendanceRecord[]>([])
+ const [myLeaves,setMyLeaves]=useState<CompanyLeaveRecord[]>([])
+ const [schedule,setSchedule]=useState<AttendanceScheduleRow[]>([])
+ const [workMode,setWorkMode]=useState<'office'|'work_from_home'>('office')
+ const [leaveStart,setLeaveStart]=useState(indiaDate())
+ const [leaveEnd,setLeaveEnd]=useState(indiaDate())
+ const [leaveReason,setLeaveReason]=useState('')
+ const [loading,setLoading]=useState(true)
+ const [busy,setBusy]=useState(false)
+ const [message,setMessage]=useState('')
+ const [waGroupName,setWaGroupName]=useState('Brickmen group')
+ const [waGroupId,setWaGroupId]=useState('')
+ const [waEnabled,setWaEnabled]=useState(false)
+ const today=indiaDate()
+ const todayRecord=myAttendance.find(record=>record.attendance_date===today)
+ const editable=Boolean(todayRecord&&!todayRecord.frozen_at&&new Date(todayRecord.editable_until).getTime()>Date.now())
+ const onLeaveToday=myLeaves.some(leave=>leave.status==='active'&&leave.start_date<=today&&leave.end_date>=today)
+
+ useEffect(()=>{
+  let alive=true
+  async function load(){
+   if(!supabase){setLoading(false);return}
+   setLoading(true)
+   const [attendanceResult,leaveResult]=await Promise.all([
+    supabase.from('company_attendance').select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('attendance_date',{ascending:false}).limit(60),
+    supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('start_date',{ascending:false}).limit(60)
+   ])
+   if(!alive)return
+   if(attendanceResult.error)setMessage('Could not load your attendance: '+attendanceResult.error.message)
+   else setMyAttendance((attendanceResult.data??[]) as AttendanceRecord[])
+   if(leaveResult.error)setMessage('Could not load your leave history: '+leaveResult.error.message)
+   else setMyLeaves((leaveResult.data??[]) as CompanyLeaveRecord[])
+   if(isAdmin){
+    const [scheduleResult,settingsResult]=await Promise.all([
+     supabase.rpc('get_company_attendance_schedule',{p_company_id:company.id,p_date:scheduleDate}),
+     supabase.from('company_whatsapp_settings').select('company_id,group_name,group_id,enabled,timezone,updated_by,updated_at').eq('company_id',company.id).maybeSingle()
+    ])
+    if(!alive)return
+    if(scheduleResult.error)setMessage('Could not load the employee attendance schedule: '+scheduleResult.error.message)
+    else setSchedule((scheduleResult.data??[]) as AttendanceScheduleRow[])
+    if(settingsResult.error)setMessage('WhatsApp settings could not load: '+settingsResult.error.message)
+    else if(settingsResult.data){setWaGroupName(settingsResult.data.group_name??'Brickmen group');setWaGroupId(settingsResult.data.group_id==='NOT_CONFIGURED'?'':settingsResult.data.group_id??'');setWaEnabled(Boolean(settingsResult.data.enabled))}
+    else {setWaGroupName('Brickmen group');setWaGroupId('');setWaEnabled(false)}
+   } else setSchedule([])
+   setLoading(false)
+  }
+  void load()
+  return ()=>{alive=false}
+ },[company.id,currentUser.id,isAdmin,scheduleDate])
+
+ async function startOrUpdateWork(){
+  if(!supabase)return
+  if(onLeaveToday){setMessage('You have an active leave record for today. Cancel it first if you are returning to work.');return}
+  setBusy(true);setMessage('')
+  if(todayRecord){
+   if(!editable){setMessage('This attendance entry is frozen. Work location can only be changed within the first hour after check-in.');setBusy(false);return}
+   const {data,error}=await supabase.from('company_attendance').update({work_mode:workMode}).eq('id',todayRecord.id).select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').single()
+   if(error)setMessage('Could not update attendance: '+error.message)
+   else {setMyAttendance(current=>current.map(row=>row.id===data.id?data as AttendanceRecord:row));setMessage('Work location updated. Your original check-in time has not changed.')}
+  }else{
+   const {data,error}=await supabase.from('company_attendance').insert({company_id:company.id,user_id:currentUser.id,attendance_date:today,work_mode:workMode}).select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').single()
+   if(error)setMessage('Could not start work mode: '+error.message)
+   else {setMyAttendance(current=>[data as AttendanceRecord,...current.filter(row=>row.attendance_date!==today)]);setMessage('Work mode started. You have one hour to correct the work location; the entry time will remain fixed.')}
+  }
+  setBusy(false)
+ }
+ async function submitLeave(e:FormEvent){
+  e.preventDefault()
+  if(!supabase||leaveEnd<leaveStart||leaveStart<today){setMessage('Choose a valid leave period starting today or later.');return}
+  setBusy(true);setMessage('')
+  const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null}).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  if(error)setMessage('Could not submit leave: '+error.message)
+  else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setMessage('Leave added to the company schedule. It will be reflected in the 10 AM attendance message.')}
+  setBusy(false)
+ }
+ async function cancelLeave(leave:CompanyLeaveRecord){
+  if(!supabase||leave.status!=='active'||leave.start_date<today)return
+  if(!confirm(`Cancel leave from ${shortDate(leave.start_date)} to ${shortDate(leave.end_date)}?`))return
+  const {data,error}=await supabase.from('company_leave').update({status:'cancelled'}).eq('id',leave.id).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  if(error)setMessage('Could not cancel leave: '+error.message)
+  else {setMyLeaves(current=>current.map(row=>row.id===leave.id?data as CompanyLeaveRecord:row));setMessage('Upcoming leave cancelled.')}
+ }
+ async function saveWhatsAppSettings(e:FormEvent){
+  e.preventDefault()
+  if(!supabase||!isAdmin)return
+  if(waEnabled&&!waGroupId.trim()){setMessage('Enter the WhatsApp Groups API group ID before enabling daily messages.');return}
+  setBusy(true);setMessage('')
+  const {error}=await supabase.from('company_whatsapp_settings').upsert({
+   company_id:company.id,group_name:waGroupName.trim()||'Company attendance group',group_id:waGroupId.trim()||'NOT_CONFIGURED',
+   enabled:waEnabled,timezone:'Asia/Kolkata',updated_by:currentUser.id,updated_at:new Date().toISOString()
+  },{onConflict:'company_id'})
+  if(error)setMessage('Could not save WhatsApp settings: '+error.message)
+  else setMessage(waEnabled?'WhatsApp delivery is enabled in the workspace settings. It will send only after Meta credentials and the 10 AM cron job are configured.':'WhatsApp attendance delivery is disabled.')
+  setBusy(false)
+ }
+ const statusText=(row:AttendanceScheduleRow)=>row.attendance_status==='working'?'Working':row.attendance_status==='on_leave'?'On leave':'Not signed in'
+ const statusClass=(status:string)=>status==='working'?'working':status==='on_leave'?'on-leave':'not-signed-in'
+ return <section className="attendance-page">
+  <div className="page-heading"><div><div className="eyebrow"><span className="live-dot"/> COMPANY ATTENDANCE</div><h1>{isAdmin?'Attendance schedule':'My attendance'}</h1><p>{isAdmin?'Company-wide employee attendance is visible only to admins.':'Submit your own work mode and leave dates. You cannot see other employees’ attendance.'}</p></div><div className="heading-actions"><span className="role-badge"><ShieldCheck size={13}/>{isAdmin?'Company admin':'Employee'}</span></div></div>
+  {message&&<div className="notice-banner"><span>{message}</span><button className="icon-button" onClick={()=>setMessage('')}><X size={15}/></button></div>}
+  <section className="panel my-attendance-panel">
+   <div className="panel-heading"><div><h2>My daily work mode</h2><p>Today's date in India: {shortDate(today)} · Check-in time is recorded by the server.</p></div><Clock3 size={19}/></div>
+   {onLeaveToday&&<div className="attendance-alert"><CalendarDays size={16}/> You are marked on leave today.</div>}
+   <div className="attendance-checkin-row"><div className="attendance-checkin-details"><span className="eyebrow">{todayRecord?'TODAY’S ENTRY':'START WORK'}</span><b>{todayRecord?'Entered work mode at '+indiaTime(todayRecord.started_at):'Choose how you are working today'}</b><small>{todayRecord?(editable?'Editable until '+indiaTime(todayRecord.editable_until):'Frozen · corrections closed at '+indiaTime(todayRecord.editable_until)):'Your entry becomes immutable one hour after you check in.'}</small></div>
+    <label>Work location<select value={workMode} onChange={e=>setWorkMode(e.target.value as 'office'|'work_from_home')} disabled={Boolean(todayRecord&&!editable)||onLeaveToday}><option value="office">Office</option><option value="work_from_home">Work from home</option></select></label>
+    <button className="primary" onClick={()=>void startOrUpdateWork()} disabled={busy||onLeaveToday||Boolean(todayRecord&&!editable)}>{busy?'Saving…':todayRecord?'Update location':'Start work'}</button>
+   </div>
+  </section>
+  <section className="panel">
+   <div className="panel-heading"><div><h2>Request / record leave</h2><p>Leave is visible to company admins for the selected date range.</p></div><CalendarDays size={18}/></div>
+   <form className="form-stack attendance-leave-form" onSubmit={submitLeave}><div className="form-grid"><label>Leave starts<input type="date" min={today} value={leaveStart} onChange={e=>{setLeaveStart(e.target.value);if(leaveEnd<e.target.value)setLeaveEnd(e.target.value)}} required/></label><label>Leave ends<input type="date" min={leaveStart||today} value={leaveEnd} onChange={e=>setLeaveEnd(e.target.value)} required/></label></div><label>Reason (optional)<textarea rows={2} maxLength={1000} value={leaveReason} onChange={e=>setLeaveReason(e.target.value)} placeholder="Optional note for the admin schedule"/></label><button className="primary compact" disabled={busy||leaveStart<today||leaveEnd<leaveStart}><CalendarDays size={14}/> Add leave</button></form>
+   <div className="compact-table-wrap attendance-history-wrap"><table className="compact-table attendance-history-table"><thead><tr><th>Leave dates</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    {myLeaves.map(leave=><tr key={leave.id}><td>{shortDate(leave.start_date)} – {shortDate(leave.end_date)}</td><td>{leave.reason||'—'}</td><td><span className={'company-role-pill '+(leave.status==='active'?'admin':'employee')}>{leave.status==='active'?'Active':'Cancelled'}</span></td><td>{leave.status==='active'&&leave.start_date>=today?<button className="outline-button compact" onClick={()=>void cancelLeave(leave)}>Cancel</button>:'—'}</td></tr>)}
+    {myLeaves.length===0&&<tr><td colSpan={4}>No leave entries yet.</td></tr>}
+   </tbody></table></div>
+  </section>
+  <section className="panel">
+   <div className="panel-heading"><div><h2>My attendance history</h2><p>Your own entries only. Records become immutable after the first hour.</p></div><Clock3 size={18}/></div>
+   <div className="compact-table-wrap attendance-history-wrap"><table className="compact-table attendance-history-table"><thead><tr><th>Date</th><th>Work mode</th><th>Entry time</th><th>Correction window</th><th>Status</th></tr></thead><tbody>
+    {myAttendance.map(record=><tr key={record.id}><td>{shortDate(record.attendance_date)}</td><td>{record.work_mode==='work_from_home'?'Work from home':'Office'}</td><td>{indiaTime(record.started_at)}</td><td>{indiaTime(record.editable_until)}</td><td><span className={'company-role-pill '+(record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'employee':'admin')}>{record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'Frozen':'Editable'}</span></td></tr>)}
+    {myAttendance.length===0&&<tr><td colSpan={5}>No attendance records yet.</td></tr>}
+   </tbody></table></div>
+  </section>
+  {isAdmin&&<section className="panel attendance-admin-panel">
+   <div className="panel-heading"><div><h2>Employee attendance schedule</h2><p>This table is admin-only. Choose a date to see working, leave, and not-signed-in statuses.</p></div><Users size={19}/></div>
+   <div className="attendance-admin-toolbar"><label>Schedule date<input type="date" value={scheduleDate} onChange={e=>setScheduleDate(e.target.value)} max={new Date(Date.now()+365*86400000).toISOString().slice(0,10)}/></label><span>{schedule.filter(row=>row.attendance_status==='working').length} working · {schedule.filter(row=>row.attendance_status==='on_leave').length} on leave · {schedule.filter(row=>row.attendance_status==='not_signed_in').length} not signed in</span></div>
+   {loading?<div className="dashboard-loading"><LoaderCircle className="spin"/>Loading attendance…</div>:<div className="compact-table-wrap attendance-history-wrap"><table className="compact-table company-deadline-table attendance-schedule-table"><thead><tr><th>Employee</th><th>Status</th><th>Work location</th><th>Entered work mode</th><th>Correction cutoff</th><th>Leave dates</th></tr></thead><tbody>
+   {schedule.map(row=><tr key={row.user_id}><td><b>{row.employee_name}</b><small className="attendance-email">{row.employee_email}</small></td><td><span className={'attendance-status-pill '+statusClass(row.attendance_status)}>{statusText(row)}</span></td><td>{row.work_mode==='work_from_home'?'Work from home':row.work_mode==='office'?'Office':'—'}</td><td>{indiaTime(row.started_at)}</td><td>{row.editable_until?(row.is_frozen?'Frozen · ':'Editable until ')+indiaTime(row.editable_until):'—'}</td><td>{row.leave_start?shortDate(row.leave_start)+' – '+shortDate(row.leave_end):'—'}</td></tr>)}
+   {schedule.length===0&&<tr><td colSpan={6}>No employees found in this company.</td></tr>}
+   </tbody></table></div>}
+  </section>
+  }
+  {isAdmin&&<section className="panel attendance-whatsapp-panel">
+   <div className="panel-heading"><div><h2>10 AM WhatsApp attendance message</h2><p>Configure the destination for daily employee status messages.</p></div><Mail size={19}/></div>
+   <form className="form-stack attendance-wa-form" onSubmit={saveWhatsAppSettings}><div className="form-grid"><label>WhatsApp group name<input value={waGroupName} onChange={e=>setWaGroupName(e.target.value)} maxLength={120} placeholder="Brickmen group" required/></label><label>WhatsApp Groups API group ID<input value={waGroupId} onChange={e=>setWaGroupId(e.target.value)} placeholder="Paste the group ID from Meta's Groups API" /></label></div><label className="attendance-toggle"><input type="checkbox" checked={waEnabled} onChange={e=>setWaEnabled(e.target.checked)}/> Enable daily 10:00 AM IST employee status messages</label><div className="attendance-whatsapp-warning"><AlertCircle size={17}/><p>The official WhatsApp Groups API only supports eligible WhatsApp Business accounts and API-enabled groups. A normal existing WhatsApp group may not be addressable. The Edge Function, WhatsApp credentials, and cron schedule must also be configured before a message can actually be sent.</p></div><button className="primary compact" disabled={busy}><Save size={14}/> Save WhatsApp settings</button></form>
+  </section>}
+ </section>
+}
 
 function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCompanyName,companySlug,setCompanySlug,onCreate,busy}:{companies:Company[];selectedCompanyId:string|null;onSelect:(id:string|null)=>void;companyName:string;setCompanyName:(value:string)=>void;companySlug:string;setCompanySlug:(value:string)=>void;onCreate:(e:FormEvent)=>void;busy:boolean}) {
   const slugify=(value:string)=>value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64)
