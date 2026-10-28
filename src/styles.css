@@ -614,3 +614,6 @@
  .attendance-admin-toolbar { align-items:flex-start; flex-direction:column; }
  .attendance-admin-toolbar>span { padding-bottom:0; }
 }
+
+.company-logo-input-label { display:flex; flex-direction:column; gap:8px; max-width:650px; font-size:12px; font-weight:700; color:var(--company-text); }
+.company-logo-input-label input[type=file] { width:100%; padding:11px; border:1px dashed var(--company-border); border-radius:8px; background:var(--company-panel2); color:var(--company-text); font-size:11px; }
