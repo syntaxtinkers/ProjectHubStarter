@@ -5,7 +5,7 @@ import {
   LayoutDashboard, LogOut, MessageCircle, Plus, Search, Settings2, ShieldCheck, Users, X,
   LockKeyhole, Eye, Pencil, LoaderCircle, ListTodo, GanttChartSquare, Palette, Trash2,
   CircleCheck, Clock3, AlertCircle, RefreshCw, UserPlus, SlidersHorizontal, Filter, FileDown, ChevronUp,
-  Building2, Mail, BriefcaseBusiness, Upload, Save, Link2, Unlink, UserCheck, CalendarRange, ArrowUpRight
+  Building2, Mail, Upload, Save, Link2, Unlink, UserCheck, CalendarRange, ArrowUpRight
 } from 'lucide-react'
 import { isConfigured, supabase } from './lib/supabase'
 import CalendarView from './CalendarView'
@@ -49,7 +49,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot' | 'reset' | 'google'>('signin')
   const [authMessage, setAuthMessage] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -620,7 +620,7 @@ export default function App() {
       {authMode === 'signin' && <><button className="outline-button auth-google" onClick={()=>void startGoogleSignIn()} disabled={busy}><span className="google-g">G</span> Continue with Google</button><button className="text-button forgot-link" onClick={()=>{setAuthMode('forgot');setAuthMessage('')}}>Forgot password?</button></>}
       {authMode === 'google' && <button className="primary full" onClick={()=>void startGoogleSignIn()} disabled={busy}>Continue with Google <ArrowUpRight size={15}/></button>}
       {authMessage && <p className="notice">{authMessage}</p>}
-      {authMode!=='reset' && <p className="switch-auth">{authMode === 'signin' || authMode==='forgot' || authMode==='google' ? 'New to ProjectHub?' : 'Already have an account?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signup' ? 'signin' : 'signup');setAuthMessage('')}}>{authMode === 'signup' ? 'Sign in' : 'Create an account'}</button></p>}
+      {authMode!=='reset' && <p className="switch-auth">{authMode === 'signup' ? 'Already have an account?' : 'New to ProjectHub?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signup' || authMode==='forgot' || authMode==='google' ? 'signin' : 'signup');setAuthMessage('')}}>{authMode === 'signup' ? 'Sign in' : authMode==='forgot' || authMode==='google' ? 'Sign in' : 'Create an account'}</button></p>}
       {authMode==='reset' && <p className="switch-auth"><button className="text-button" onClick={()=>{setAuthMode('signin');setAuthMessage('')}}>Back to sign in</button></p>}
       <div className="secure-note"><LockKeyhole size={14}/> Your workspace access is protected.</div></div></section>
     </main>
@@ -629,7 +629,7 @@ export default function App() {
   return <div className={`app-shell ${prefs.mode === 'light' ? 'light-mode' : ''} ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={themeStyle}>
     <aside className="sidebar">
       <div className="brand">{displayCompany?.logo_url ? <img className="company-logo-mark" src={displayCompany.logo_url} alt="" /> : <div className="brand-mark"><Command size={19}/></div>}<span>{displayCompany?.name ?? 'CKPC'} <span className="accent">Project Hub</span></span><button type="button" className="icon-button collapse" title={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} aria-label={sidebarCollapsed?"Expand workspace menu":"Collapse workspace menu"} onClick={()=>setSidebarCollapsed(v=>!v)}><ChevronDown size={15}/></button></div>
-      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{selectedCompany?.name ?? profileName || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>1&&<select aria-label="Switch company" value={selectedCompanyId ?? ''} onChange={e=>setSelectedCompanyId(e.target.value||null)}>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
+      <div className="workspace-switch"><div className="workspace-avatar">{(session.user.email ?? 'U').slice(0,1).toUpperCase()}</div><div className="workspace-switch-meta"><b>{(selectedCompany?.name ?? profileName) || session.user.email?.split('@')[0] || 'Personal workspace'}</b><small>{selectedCompany ? (selectedCompany.role === 'admin' ? 'Company admin' : 'Company employee') : 'Personal workspace'}</small></div>{companies.length>1&&<select aria-label="Switch company" value={selectedCompanyId ?? ''} onChange={e=>setSelectedCompanyId(e.target.value||null)}>{companies.map(company=><option value={company.id} key={company.id}>{company.name}</option>)}</select>}</div>
       <div className="nav-label">WORKSPACE</div>
       <button className={`nav-item ${tab==='home'?'active':''}`} title="Dashboard" onClick={()=>setTab('home')}><LayoutDashboard size={17}/> Dashboard</button>
       <button className={`nav-item ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}><Activity size={17}/> Project overview</button>
@@ -648,7 +648,7 @@ export default function App() {
       <div className="page-content">
         {notice && <div className="notice-banner"><span>{notice}</span><button className="icon-button" onClick={()=>setNotice('')}><X size={15}/></button></div>}
         {tab==='home' ? <GlobalDashboard projects={projects} onOpenProject={id=>{setSelectedId(id);setTab('stages')}} onCreateProject={()=>setShowCreate(true)}/> :
-        tab==='company' ? (selectedCompany ? <CompanyProfile company={selectedCompany} isAdmin={isCompanyAdmin} members={companyMembers} rows={companyRows} assignments={companyAssignments} availableProjects={projects} busy={busy} notice={message=>setNotice(message)} onSave={saveCompanyProfile} onLogoUpload={uploadCompanyLogo} onInvite={inviteCompanyMember} onLinkProject={linkProjectToCompany} onUnlinkProject={unlinkProjectFromCompany} onAssign={assignCompanyProject} onMemberUpdate={updateCompanyMember} onRemoveMember={removeCompanyMember} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} inviteEmail={companyInviteEmail} setInviteEmail={setCompanyInviteEmail} inviteRole={companyInviteRole} setInviteRole={setCompanyInviteRole} assignProjectId={assignProjectId} setAssignProjectId={setAssignProjectId} assignEmployeeId={assignEmployeeId} setAssignEmployeeId={setAssignEmployeeId}/> : <section className="panel"><h2>No company selected</h2><p>Create a company from Settings, or accept a company invitation from your email.</p><button className="primary" onClick={()=>setTab('settings')}>Open Settings</button></section>) :
+        tab==='company' ? (selectedCompany ? <CompanyProfile company={selectedCompany} isAdmin={isCompanyAdmin} members={companyMembers} rows={companyRows} assignments={companyAssignments} availableProjects={projects} busy={busy} onSave={saveCompanyProfile} onLogoUpload={uploadCompanyLogo} onInvite={inviteCompanyMember} onLinkProject={linkProjectToCompany} onUnlinkProject={unlinkProjectFromCompany} onAssign={assignCompanyProject} onMemberUpdate={updateCompanyMember} onRemoveMember={removeCompanyMember} linkProjectId={linkProjectId} setLinkProjectId={setLinkProjectId} inviteEmail={companyInviteEmail} setInviteEmail={setCompanyInviteEmail} inviteRole={companyInviteRole} setInviteRole={setCompanyInviteRole} assignProjectId={assignProjectId} setAssignProjectId={setAssignProjectId} assignEmployeeId={assignEmployeeId} setAssignEmployeeId={setAssignEmployeeId}/> : <section className="panel"><h2>No company selected</h2><p>Create a company from Settings, or accept a company invitation from your email.</p><button className="primary" onClick={()=>setTab('settings')}>Open Settings</button></section>) :
         tab==='settings' ? <><CompanySettings companies={companies} selectedCompanyId={selectedCompanyId} onSelect={setSelectedCompanyId} companyName={companyCreateName} setCompanyName={setCompanyCreateName} companySlug={companyCreateSlug} setCompanySlug={setCompanyCreateSlug} onCreate={createCompany} busy={busy}/><Personalise prefs={prefs} save={savePrefs} profileName={profileName} setProfileName={setProfileName} email={session.user.email ?? ''}/></> :
         !selected ? <section className="welcome-block"><div className="welcome-icon"><FolderKanban size={24}/></div><span className="eyebrow">YOUR WORKSPACE</span><h1>Make room for <span>great work.</span></h1><p>Create a project to bring your team, updates, and ideas into one focused space.</p><button className="primary" onClick={()=>setShowCreate(true)}><Plus size={17}/> Create your first project</button><div className="empty-note"><LockKeyhole size={15}/> Projects are private until you add teammates.</div></section> :
         <>
@@ -704,7 +704,7 @@ function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCo
 }
 
 function CompanyProfile({company,isAdmin,members,rows,assignments,availableProjects,busy,notice,onSave,onLogoUpload,onInvite,onLinkProject,onUnlinkProject,onAssign,onMemberUpdate,onRemoveMember,linkProjectId,setLinkProjectId,inviteEmail,setInviteEmail,inviteRole,setInviteRole,assignProjectId,setAssignProjectId,assignEmployeeId,setAssignEmployeeId}:{
- company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;notice:(message:string)=>void;
+ company:Company;isAdmin:boolean;members:CompanyMember[];rows:CompanyProjectRow[];assignments:CompanyAssignment[];availableProjects:Project[];busy:boolean;
  onSave:(patch:Partial<Pick<Company,'name'|'logo_url'|'theme'>>)=>Promise<void>;onLogoUpload:(file:File)=>Promise<void>;
  onInvite:(e:FormEvent)=>void;onLinkProject:()=>Promise<void>;onUnlinkProject:(id:string)=>Promise<void>;onAssign:()=>Promise<void>;
  onMemberUpdate:(member:CompanyMember,patch:Partial<Pick<CompanyMember,'role'|'full_name'|'job_title'>>)=>Promise<void>;onRemoveMember:(member:CompanyMember)=>Promise<void>;
@@ -776,7 +776,6 @@ function CompanyMemberEditor({member,isAdmin,currentMember,onSave,onRemove}:{mem
 }
 
 function CompanyStageGantt({rows,start,end,span}:{rows:CompanyProjectRow[];start:Date;end:Date;span:number}) {
- const addDays=(date:Date,days:number)=>new Date(date.getTime()+days*86400000)
  const labels:string[]=[]
  const first=new Date(start.getFullYear(),start.getMonth(),1)
  for(let d=new Date(first);d<=end;d.setMonth(d.getMonth()+1))labels.push(d.toLocaleDateString(undefined,{month:'short',year:'2-digit'}))
