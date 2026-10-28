@@ -89,3 +89,23 @@ select cron.schedule(
   ) as request_id;
   $$
 );
+
+
+-- Auto-mark unupdated assigned work as "not started" shortly after each workday ends.
+-- The function skips Sunday and never overwrites an employee's explicit status.
+select cron.schedule(
+  'company-daily-work-default-status',
+  '35 18 * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'company_attendance_project_url')
+      || '/rest/v1/rpc/materialize_daily_work_defaults',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'company_attendance_publishable_key'),
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'company_attendance_publishable_key')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
