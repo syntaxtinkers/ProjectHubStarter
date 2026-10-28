@@ -1041,7 +1041,7 @@ function WeeklyWorkDashboard({projects,tasks,stages,currentUserId,companyMembers
     if(t.status==='done'&&end<weekStart)return false
     return start<=weekEnd&&(end>=weekStart||(t.status!=='done'&&end<weekStart))
   }),[currentList,weekStart,weekEnd])
-  const scheduledDate=(task:Task)=>task.start_date&&task.start_date>=weekStart&&task.start_date<=weekEnd?task.start_date:task.start_date&&task.start_date<weekStart&&(task.due_date==null||task.due_date>=weekStart)?weekStart:task.due_date&&task.due_date>=weekStart&&task.due_date<=weekEnd?task.due_date:(task.due_date??task.start_date??'')<weekStart?weekStart:weekStart
+  const scheduledDate=(task:Task)=>task.start_date&&task.start_date>=weekStart&&task.start_date<=weekEnd?task.start_date:task.start_date&&task.start_date<weekStart&&(task.due_date==null||task.due_date>=weekStart)?weekStart:task.due_date&&task.due_date>=weekStart&&task.due_date<=weekEnd?weekStart:(task.due_date??task.start_date??'')<weekStart?weekStart:weekStart
   const weekTaskIds=weekTasks.map(t=>t.id)
   useEffect(()=>{
     let alive=true
