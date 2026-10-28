@@ -1,0 +1,137 @@
+-- Weekly work dashboards and daily progress records.
+-- Additive migration: preserves all existing tasks, projects, stages, and memberships.
+alter table public.project_tasks
+  add column if not exists assigned_to_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists assigned_by_user_id uuid references auth.users(id) on delete set null;
+
+create index if not exists project_tasks_assignee_dates_idx
+  on public.project_tasks(assigned_to_user_id, start_date, due_date)
+  where assigned_to_user_id is not null;
+create index if not exists project_tasks_assigner_dates_idx
+  on public.project_tasks(assigned_by_user_id, start_date, due_date)
+  where assigned_by_user_id is not null;
+
+create table if not exists public.task_daily_updates (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.project_tasks(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  work_date date not null,
+  week_start date not null,
+  status text not null default 'not_started'
+    check (status in ('not_started','ongoing','completed')),
+  updated_at timestamptz not null default now(),
+  updated_by uuid not null references auth.users(id) on delete restrict,
+  unique (task_id, user_id, work_date),
+  check (extract(isodow from week_start) = 1),
+  check (week_start <= work_date and work_date < week_start + 7)
+);
+create index if not exists task_daily_updates_user_week_idx
+  on public.task_daily_updates(user_id, week_start, work_date);
+create index if not exists task_daily_updates_task_date_idx
+  on public.task_daily_updates(task_id, work_date);
+
+alter table public.task_daily_updates enable row level security;
+drop policy if exists "Users read daily updates for accessible assigned tasks" on public.task_daily_updates;
+create policy "Users read daily updates for accessible assigned tasks"
+on public.task_daily_updates for select to authenticated
+using (
+  user_id = (select auth.uid())
+  or exists (
+    select 1 from public.project_tasks t
+    where t.id = task_daily_updates.task_id
+      and (t.assigned_by_user_id = (select auth.uid()) or t.created_by = (select auth.uid()))
+  )
+  or exists (
+    select 1 from public.project_tasks t
+    join public.company_projects cp on cp.project_id = t.project_id
+    where t.id = task_daily_updates.task_id
+      and public.is_company_admin(cp.company_id)
+  )
+);
+drop policy if exists "Users create their own daily updates" on public.task_daily_updates;
+create policy "Users create their own daily updates"
+on public.task_daily_updates for insert to authenticated
+with check (
+  user_id = (select auth.uid())
+  and updated_by = (select auth.uid())
+  and exists (
+    select 1 from public.project_tasks t
+    where t.id = task_daily_updates.task_id
+      and (t.assigned_to_user_id = (select auth.uid())
+        or t.assigned_by_user_id = (select auth.uid())
+        or t.created_by = (select auth.uid()))
+  )
+);
+drop policy if exists "Users update their own daily updates" on public.task_daily_updates;
+create policy "Users update their own daily updates"
+on public.task_daily_updates for update to authenticated
+using (user_id = (select auth.uid()) and exists (
+  select 1 from public.project_tasks t
+  where t.id = task_daily_updates.task_id
+    and (t.assigned_to_user_id = (select auth.uid())
+      or t.assigned_by_user_id = (select auth.uid())
+      or t.created_by = (select auth.uid()))
+))
+with check (user_id = (select auth.uid()) and updated_by = (select auth.uid()));
+
+create or replace function public.company_weekly_completion(p_company_id uuid, p_week_start date default ((now() at time zone 'Asia/Kolkata')::date - (extract(isodow from (now() at time zone 'Asia/Kolkata')::date)::int - 1)))
+returns table(user_id uuid, employee_name text, role text, total_work bigint, completed_work bigint, completion_percent integer)
+language sql stable security definer set search_path = ''
+as $$
+  with members as (
+    select cm.user_id, coalesce(nullif(trim(cm.full_name), ''), au.email, 'Employee') as employee_name, cm.role
+    from public.company_members cm
+    join auth.users au on au.id = cm.user_id
+    where cm.company_id = p_company_id
+  ),
+  assigned_tasks as (
+    select distinct t.id as task_id, t.assigned_to_user_id as user_id, t.status as task_status
+    from public.project_tasks t
+    join public.company_projects cp on cp.project_id = t.project_id and cp.company_id = p_company_id
+    where t.assigned_to_user_id is not null
+      and (
+        (coalesce(t.start_date, t.due_date) <= p_week_start + 6 and coalesce(t.due_date, t.start_date) >= p_week_start)
+        or (coalesce(t.due_date, t.start_date) < p_week_start and t.status <> 'done')
+      )
+  ),
+  progress as (
+    select at.user_id, count(*) as total_work,
+      count(*) filter (where at.task_status = 'done' or exists (
+        select 1 from public.task_daily_updates du
+        where du.task_id = at.task_id and du.user_id = at.user_id
+          and du.week_start = p_week_start and du.status = 'completed'
+      )) as completed_work
+    from assigned_tasks at group by at.user_id
+  )
+  select m.user_id, m.employee_name, m.role,
+    coalesce(p.total_work,0)::bigint,
+    coalesce(p.completed_work,0)::bigint,
+    case when coalesce(p.total_work,0)=0 then 100
+      else round(100.0 * coalesce(p.completed_work,0) / p.total_work)::integer end
+  from members m left join progress p on p.user_id=m.user_id
+  where public.is_company_admin(p_company_id)
+  order by m.role, m.employee_name;
+$$;
+revoke all on function public.company_weekly_completion(uuid,date) from public;
+grant execute on function public.company_weekly_completion(uuid,date) to authenticated;
+
+-- A server-side trigger prevents a caller from recording another employee's assignment.
+create or replace function public.guard_task_assignment_users()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  if new.assigned_to_user_id is not null and not exists (
+    select 1 from public.project_members pm where pm.project_id = new.project_id and pm.user_id = new.assigned_to_user_id
+  ) then
+    raise exception 'The assignee must already have access to this project';
+  end if;
+  if new.assigned_to_user_id is not null and new.assigned_by_user_id is null then
+    new.assigned_by_user_id := auth.uid();
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists project_tasks_guard_assignment_users on public.project_tasks;
+create trigger project_tasks_guard_assignment_users
+before insert or update of project_id, assigned_to_user_id, assigned_by_user_id on public.project_tasks
+for each row execute function public.guard_task_assignment_users();
