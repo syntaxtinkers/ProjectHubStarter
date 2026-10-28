@@ -33,7 +33,8 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'reset' | 'update_password'>('signin')
+  const [newPassword, setNewPassword] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -103,7 +104,7 @@ export default function App() {
   useEffect(() => {
     if (!supabase) { setLoading(false); return }
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false) })
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
+    const { data: listener } = supabase.auth.onAuthStateChange((event, next) => { setSession(next); if (event === 'PASSWORD_RECOVERY') { setAuthMode('update_password'); setAuthMessage('Choose a new password for your account.') } })
     return () => listener.subscription.unsubscribe()
   }, [])
   useEffect(() => {
@@ -158,10 +159,27 @@ export default function App() {
   async function handleAuth(e: FormEvent) {
     e.preventDefault(); if (!supabase) return
     setBusy(true); setAuthMessage('')
-    const result = authMode === 'signin' ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password })
-    if (result.error) setAuthMessage(result.error.message)
-    else if (authMode === 'signup' && !result.data.session) setAuthMessage('Account created. Check your email to confirm it, then sign in.')
-    setBusy(false)
+    try {
+      if (authMode === 'reset') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin })
+        setAuthMessage(error ? error.message : 'If an account exists for this email, a password-reset link has been sent. Check your Gmail inbox and spam folder.')
+      } else if (authMode === 'update_password') {
+        const { error } = await supabase.auth.updateUser({ password: newPassword })
+        if (error) setAuthMessage(error.message)
+        else { setAuthMessage('Password updated successfully. You can now sign in with your new password.'); setPassword(''); setNewPassword(''); setAuthMode('signin'); await supabase.auth.signOut() }
+      } else {
+        const result = authMode === 'signin' ? await supabase.auth.signInWithPassword({ email: email.trim(), password }) : await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: window.location.origin } })
+        if (result.error) setAuthMessage(result.error.message)
+        else if (authMode === 'signup' && !result.data.session) setAuthMessage('Account created. Check your email to confirm it, then sign in.')
+      }
+    } catch (error) { setAuthMessage(error instanceof Error ? error.message : 'Authentication failed. Please try again.') }
+    finally { setBusy(false) }
+  }
+  async function signInWithGoogle() {
+    if (!supabase) return
+    setBusy(true); setAuthMessage('')
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })
+    if (error) { setAuthMessage(error.message); setBusy(false) }
   }
   async function createProject(e: FormEvent) {
     e.preventDefault(); if (!supabase || !session?.user || !projectName.trim()) return
@@ -415,7 +433,23 @@ export default function App() {
   if (!session) return (
     <main className="auth-shell">
       <div className="auth-decoration"><div className="glow glow-a"/><div className="glow glow-b"/><div className="auth-brand"><div className="brand-mark"><Command size={21}/></div><span>CKPC <span className="accent">project hub</span></span></div><div className="auth-pitch"><span className="eyebrow">ONE SPACE. EVERY PROJECT.</span><h1>Good work happens<br/><span>together.</span></h1><p>A calmer workspace for your team's projects, conversations, and ideas.</p><div className="feature-pills"><span><ShieldCheck size={14}/> Permission-aware</span><span><Users size={14}/> Made for teams</span></div></div><div className="auth-foot">YOUR TEAM'S WORKSPACE, REIMAGINED</div></div>
-      <section className="auth-panel"><div className="mobile-brand"><div className="brand-mark"><Command size={20}/></div><b>CKPC <span className="accent">project hub</span></b></div><div className="auth-card"><span className="eyebrow">{authMode === 'signin' ? 'WELCOME BACK' : 'GET STARTED'}</span><h2>{authMode === 'signin' ? 'Sign in to your workspace' : 'Create your account'}</h2><p className="muted">{authMode === 'signin' ? 'Pick up where your team left off.' : 'Set up your account to create your first project.'}</p><form onSubmit={handleAuth} className="form-stack"><label>Email address<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required/></label><label>Password<input type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters" minLength={6} required/></label><button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'} <span>→</span></button></form>{authMessage && <p className="notice">{authMessage}</p>}<p className="switch-auth">{authMode === 'signin' ? 'New to ProjectHub?' : 'Already have an account?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signin' ? 'signup' : 'signin');setAuthMessage('')}}>{authMode === 'signin' ? 'Create an account' : 'Sign in'}</button></p><div className="secure-note"><LockKeyhole size={14}/> Your projects are private by default.</div></div></section>
+      <section className="auth-panel"><div className="mobile-brand"><div className="brand-mark"><Command size={20}/></div><b>CKPC <span className="accent">project hub</span></b></div><div className="auth-card">
+        <span className="eyebrow">{authMode === 'signin' ? 'WELCOME BACK' : authMode === 'signup' ? 'GET STARTED' : authMode === 'reset' ? 'ACCOUNT RECOVERY' : 'SECURE YOUR ACCOUNT'}</span>
+        <h2>{authMode === 'signin' ? 'Sign in to your workspace' : authMode === 'signup' ? 'Create your account' : authMode === 'reset' ? 'Reset your password' : 'Choose a new password'}</h2>
+        <p className="muted">{authMode === 'signin' ? 'Pick up where your team left off.' : authMode === 'signup' ? 'Set up your account to create your first project.' : authMode === 'reset' ? 'We’ll email you a secure link to reset your password.' : 'Enter a new password for your account.'}</p>
+        {authMode === 'signin' && <button type="button" className="google-auth-button" onClick={()=>void signInWithGoogle()} disabled={busy}><span className="google-g" aria-hidden="true">G</span> Continue with Google</button>}
+        {authMode === 'signin' && <div className="auth-divider"><span>or continue with email</span></div>}
+        <form onSubmit={handleAuth} className="form-stack" autoComplete="on">
+          {authMode !== 'update_password' && <label>Email address<input name="email" type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required/></label>}
+          {(authMode === 'signin' || authMode === 'signup') && <label>Password<input name="password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder={authMode === 'signin' ? 'Your password' : 'At least 6 characters'} minLength={6} required/></label>}
+          {authMode === 'update_password' && <label>New password<input name="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="At least 6 characters" minLength={6} required/></label>}
+          <button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : authMode === 'signup' ? 'Create account' : authMode === 'reset' ? 'Email reset link' : 'Save new password'} <span>→</span></button>
+        </form>
+        {authMessage && <p className="notice" role="status">{authMessage}</p>}
+        {authMode === 'signin' && <p className="auth-secondary-link"><button className="text-button" onClick={()=>{setAuthMode('reset');setAuthMessage('')}}>Forgot password?</button></p>}
+        <p className="switch-auth">{authMode === 'signin' ? 'New to ProjectHub?' : authMode === 'signup' ? 'Already have an account?' : 'Remembered your password?'} <button className="text-button" onClick={()=>{setAuthMode(authMode === 'signin' || authMode === 'reset' || authMode === 'update_password' ? 'signup' : 'signin');setAuthMessage('')}}>{authMode === 'signin' ? 'Create an account' : 'Sign in'}</button></p>
+        <div className="secure-note"><LockKeyhole size={14}/> Your projects are private by default.</div>
+      </div></section>
     </main>
   )
 
