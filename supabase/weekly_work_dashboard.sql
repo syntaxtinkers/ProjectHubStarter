@@ -51,7 +51,7 @@ using (
   )
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
@@ -65,7 +65,7 @@ with check (
   and exists (select 1 from public.project_tasks t where t.id = task_daily_updates.task_id and t.assigned_to_user_id = (select auth.uid()))
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
@@ -83,7 +83,7 @@ with check (
   and exists (select 1 from public.project_tasks t where t.id = task_daily_updates.task_id and t.assigned_to_user_id = (select auth.uid()))
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 grant select, insert, update on public.task_daily_updates to authenticated;
 grant all privileges on public.task_daily_updates to service_role;
 
@@ -152,7 +152,7 @@ DO $safe_trigger$ BEGIN
 before insert or update of project_id, assigned_to_user_id, assigned_by_user_id on public.project_tasks
 for each row execute function public.guard_task_assignment_users()$trigger_body$;
   END IF;
-END $safe_trigger$;
+END; $safe_trigger$;
 
 -- Private contact data is available only to company admins and service-side delivery.
 create table if not exists public.company_member_contacts (
@@ -177,7 +177,7 @@ on public.company_member_contacts for all to authenticated
 using (public.is_company_admin(company_id))
 with check (public.is_company_admin(company_id))$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 grant select,insert,update,delete on public.company_member_contacts to authenticated;
 grant all privileges on public.company_member_contacts to service_role;
 
