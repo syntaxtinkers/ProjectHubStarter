@@ -156,3 +156,39 @@ Both Meta WhatsApp message templates must be approved and contain one body place
 Then edit supabase/company_attendance_cron.sql to replace the Supabase publishable/anon key and the same random cron secret as CRON_SECRET. Run the SQL in the Supabase SQL Editor. In addition to the existing 10:00 AM attendance schedule, it schedules the individual task digest at 08:00, the schedule-update reminder at 19:00, and automatic default “not started” records at 00:05 after the previous workday. All times are Asia/Kolkata. Re-running it replaces jobs with the same names.
 
 No WhatsApp messages are sent until the migration is applied, the function is deployed, approved templates and secrets are configured, valid employee numbers are entered, and the cron schedules are installed and tested.
+
+
+## Workspace layout, work timer, and leave approval updates
+
+The current workspace redesign adds a company-wide employee metrics panel, a fixed/hover-overlay sidebar, a top-bar project picker, compact full-width stage tables, and a monthly attendance calendar. Company logo/name are also used in the app's browser branding. Personal appearance preferences remain local to the signed-in browser; when a company workspace is active, the company theme takes precedence.
+
+### Additive Supabase migration
+
+After the existing company workspace, attendance, and weekly work dashboard migrations are applied, run:
+
+- `supabase/attendance_work_sessions_and_leave_approvals.sql`
+
+This migration adds work-session timer fields, a work-location field, and leave-approval metadata. Existing attendance and leave rows are retained. Existing leave rows default to approved; newly submitted requests explicitly use the pending approval state.
+
+### Leave WhatsApp notifications
+
+Deploy both functions:
+
+- `supabase functions deploy send-leave-request-whatsapp`
+- `supabase functions deploy send-leave-decision-whatsapp`
+
+Configure the following Edge Function secrets in Supabase:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `WHATSAPP_ACCESS_TOKEN`
+- `WHATSAPP_PHONE_NUMBER_ID`
+- `WHATSAPP_API_VERSION`
+- `WHATSAPP_LEAVE_REQUEST_TEMPLATE_NAME`
+- `WHATSAPP_LEAVE_DECISION_TEMPLATE_NAME`
+- `APP_URL` (the deployed ProjectHub website URL)
+
+Meta WhatsApp Cloud API requires approved message templates. The leave-request template must have five body parameters (employee, company, date range, reason, approval link); the decision template must have four (employee, company, date range, decision). Admin/employee phone numbers must be saved in the company contact settings and WhatsApp opt-in must be enabled. If these prerequisites are missing, the leave request is still saved on the website, but WhatsApp delivery will report that it could not be sent.
+
+The WhatsApp approval link opens the attendance page with the pending leave request queue available to company admins. Approval/rejection is still enforced by the signed-in company-admin role and database policies; the link itself does not grant permission.
