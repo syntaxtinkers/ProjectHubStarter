@@ -45,9 +45,12 @@ END; $leave_admin_policy$;
 
 GRANT INSERT (company_id, user_id, attendance_date, work_mode, work_location) ON public.company_attendance TO authenticated;
 
--- Admin-only aggregate task metrics for the company dashboard. No task rows are changed.
+-- Additive stage assignment fields and admin-only employee metrics. Existing rows are preserved.
+alter table public.project_stages add column if not exists assigned_to_user_id uuid;
+alter table public.project_stages add column if not exists assigned_by_user_id uuid;
+
 create or replace function public.get_company_employee_metrics(p_company_id uuid)
-returns table(user_id uuid,total_tasks bigint,completed_tasks bigint)
+returns table(user_id uuid,total_tasks bigint,completed_tasks bigint,total_stages bigint,completed_stages bigint)
 language plpgsql
 stable
 security definer
@@ -58,14 +61,23 @@ begin
     raise exception 'Company admin access required';
   end if;
   return query
-    select cm.user_id,
-      count(t.id)::bigint as total_tasks,
-      count(t.id) filter (where t.status='done') as completed_tasks
-    from public.company_members cm
-    left join public.company_projects cp on cp.company_id=cm.company_id
-    left join public.project_tasks t on t.project_id=cp.project_id and t.assigned_to_user_id=cm.user_id
-    where cm.company_id=p_company_id
-    group by cm.user_id;
+    with task_metrics as (
+      select t.assigned_to_user_id as user_id, count(t.id)::bigint as total_tasks,
+        count(t.id) filter (where t.status='done') as completed_tasks
+      from public.project_tasks t join public.company_projects cp on cp.project_id=t.project_id
+      where cp.company_id=p_company_id and t.assigned_to_user_id is not null
+      group by t.assigned_to_user_id
+    ), stage_metrics as (
+      select s.assigned_to_user_id as user_id, count(s.id)::bigint as total_stages,
+        count(s.id) filter (where not exists (select 1 from public.project_tasks t where t.stage_id=s.id and t.status<>'done')) as completed_stages
+      from public.project_stages s join public.company_projects cp on cp.project_id=s.project_id
+      where cp.company_id=p_company_id and s.assigned_to_user_id is not null
+      group by s.assigned_to_user_id
+    )
+    select cm.user_id, coalesce(tm.total_tasks,0), coalesce(tm.completed_tasks,0), coalesce(sm.total_stages,0), coalesce(sm.completed_stages,0)
+    from public.company_members cm left join task_metrics tm on tm.user_id=cm.user_id
+    left join stage_metrics sm on sm.user_id=cm.user_id
+    where cm.company_id=p_company_id;
 end;
 $$;
 grant execute on function public.get_company_employee_metrics(uuid) to authenticated;
