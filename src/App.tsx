@@ -980,22 +980,22 @@ function CompanySettings({companies,selectedCompanyId,onSelect,companyName,setCo
 }
 
 function CompanyDashboardMetrics({company,members,rows,isAdmin}:{company:Company;members:CompanyMember[];rows:CompanyProjectRow[];isAdmin:boolean}) {
- const [taskRows,setTaskRows]=useState<Array<{project_id:string;status:string;assigned_to_user_id:string|null;stage_id:string|null}>>([])
+ const [taskRows,setTaskRows]=useState<Array<{user_id:string;total_tasks:number;completed_tasks:number}>>([])
  const [attendanceRows,setAttendanceRows]=useState<Array<{user_id:string;attendance_date:string}>>([])
  const [leaveRows,setLeaveRows]=useState<Array<{user_id:string;start_date:string;end_date:string;approval_status?:string;status:string}>>([])
  const [loadMessage,setLoadMessage]=useState('')
  const projectIds=Array.from(new Set(rows.map(row=>row.project_id).filter(Boolean)))
  const projectKey=projectIds.join(',')
- useEffect(()=>{let alive=true;async function load(){if(!supabase||!isAdmin||!projectIds.length){setTaskRows([]);setAttendanceRows([]);setLeaveRows([]);return}
+ useEffect(()=>{let alive=true;async function load(){if(!supabase||!isAdmin){setTaskRows([]);setAttendanceRows([]);setLeaveRows([]);return}
  const monthStart=indiaDate().slice(0,7)+'-01';const today=indiaDate()
  const [t,at,l]=await Promise.all([
- supabase.from('project_tasks').select('project_id,status,assigned_to_user_id,stage_id').in('project_id',projectIds),
+ supabase.rpc('get_company_employee_metrics',{p_company_id:company.id}),
  supabase.from('company_attendance').select('user_id,attendance_date').eq('company_id',company.id).gte('attendance_date',monthStart).lte('attendance_date',today),
  supabase.from('company_leave').select('user_id,start_date,end_date,approval_status,status').eq('company_id',company.id).eq('status','active').lte('start_date',today).gte('end_date',monthStart)
  ])
  if(!alive)return
  if(t.error)setLoadMessage('Some project task totals are unavailable until the company admin has access to each linked project.')
- else setTaskRows((t.data??[]) as Array<{project_id:string;status:string;assigned_to_user_id:string|null;stage_id:string|null}>)
+ else setTaskRows((t.data??[]) as Array<{user_id:string;total_tasks:number;completed_tasks:number}>)
  if(!at.error)setAttendanceRows((at.data??[]) as Array<{user_id:string;attendance_date:string}>)
  if(!l.error)setLeaveRows((l.data??[]) as Array<{user_id:string;start_date:string;end_date:string;approval_status?:string;status:string}>)
  }
@@ -1004,7 +1004,7 @@ function CompanyDashboardMetrics({company,members,rows,isAdmin}:{company:Company
  const today=indiaDate();const monthStart=today.slice(0,7)+'-01';const workdaysElapsed=(()=>{let n=0;const d=new Date(monthStart+'T12:00:00');const end=new Date(today+'T12:00:00');while(d<=end){if(d.getDay()!==0)n++;d.setDate(d.getDate()+1)}return n||1})()
  const leaveDays=(userId:string)=>leaveRows.filter(l=>l.user_id===userId&&(l.approval_status??'approved')==='approved').reduce((sum,l)=>{const start=l.start_date>monthStart?l.start_date:monthStart;const end=l.end_date<today?l.end_date:today;if(end<start)return sum;let n=0;const d=new Date(start+'T12:00:00'),last=new Date(end+'T12:00:00');while(d<=last){if(d.getDay()!==0)n++;d.setDate(d.getDate()+1)}return sum+n},0)
  return <section className="panel company-metrics-panel"><div className="panel-heading"><div><h2>Company performance</h2><p>Employee task completion, attendance, and leave for {today.slice(0,7)}.</p></div><Activity size={19}/></div>
- {!isAdmin?<p className="muted">Employee-wide completion and attendance details are visible to company admins.</p>:<><div className="company-metric-cards"><div><small>Linked projects</small><b>{projectIds.length}</b></div><div><small>Company tasks</small><b>{taskRows.length}</b></div><div><small>Completed</small><b>{taskRows.filter(t=>t.status==='done').length}</b></div><div><small>Remaining</small><b>{taskRows.filter(t=>t.status!=='done').length}</b></div></div><div className="compact-table-wrap"><table className="compact-table company-employee-metrics"><thead><tr><th>Employee</th><th>Task / stage completion</th><th>Leave days this month</th><th>Attendance</th><th>Tasks completed</th><th>Tasks remaining</th></tr></thead><tbody>{members.map(member=>{const assigned=taskRows.filter(t=>t.assigned_to_user_id===member.user_id);const completed=assigned.filter(t=>t.status==='done').length;const attendanceDays=new Set(attendanceRows.filter(r=>r.user_id===member.user_id).map(r=>r.attendance_date)).size;return <tr key={member.user_id}><td><b>{member.full_name||member.email||member.user_id.slice(0,8)}</b><small>{member.job_title||member.role}</small></td><td><b>{assigned.length?Math.round(completed/assigned.length*100):0}%</b><div className="progress-track"><div className="progress-fill done" style={{width:(assigned.length?completed/assigned.length*100:0)+'%'}}/></div></td><td>{leaveDays(member.user_id)}</td><td>{Math.min(100,Math.round(attendanceDays/workdaysElapsed*100))}%</td><td>{completed}</td><td>{assigned.length-completed}</td></tr>})}{members.length===0&&<tr><td colSpan={6}>No company employees found.</td></tr>}</tbody></table></div>{loadMessage&&<p className="muted tiny">{loadMessage}</p>}</>}
+ {!isAdmin?<p className="muted">Employee-wide completion and attendance details are visible to company admins.</p>:<><div className="company-metric-cards"><div><small>Linked projects</small><b>{projectIds.length}</b></div><div><small>Company tasks</small><b>{taskRows.reduce((n,t)=>n+Number(t.total_tasks||0),0)}</b></div><div><small>Completed</small><b>{taskRows.reduce((n,t)=>n+Number(t.completed_tasks||0),0)}</b></div><div><small>Remaining</small><b>{taskRows.reduce((n,t)=>n+Math.max(0,Number(t.total_tasks||0)-Number(t.completed_tasks||0)),0)}</b></div></div><div className="compact-table-wrap"><table className="compact-table company-employee-metrics"><thead><tr><th>Employee</th><th>Task / stage completion</th><th>Leave days this month</th><th>Attendance</th><th>Tasks completed</th><th>Tasks remaining</th></tr></thead><tbody>{members.map(member=>{const metrics=taskRows.find(t=>t.user_id===member.user_id);const assignedCount=Number(metrics?.total_tasks||0);const completed=Number(metrics?.completed_tasks||0);const attendanceDays=new Set(attendanceRows.filter(r=>r.user_id===member.user_id).map(r=>r.attendance_date)).size;return <tr key={member.user_id}><td><b>{member.full_name||member.email||member.user_id.slice(0,8)}</b><small>{member.job_title||member.role}</small></td><td><b>{assignedCount?Math.round(completed/assignedCount*100):0}%</b><div className="progress-track"><div className="progress-fill done" style={{width:(assignedCount?completed/assignedCount*100:0)+'%'}}/></div></td><td>{leaveDays(member.user_id)}</td><td>{Math.min(100,Math.round(attendanceDays/workdaysElapsed*100))}%</td><td>{completed}</td><td>{Math.max(0,assignedCount-completed)}</td></tr>})}{members.length===0&&<tr><td colSpan={6}>No company employees found.</td></tr>}</tbody></table></div>{loadMessage&&<p className="muted tiny">{loadMessage}</p>}</>}
  </section>
 }
 
