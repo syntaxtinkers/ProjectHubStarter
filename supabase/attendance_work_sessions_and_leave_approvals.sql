@@ -60,7 +60,7 @@ begin
   return query
     select cm.user_id,
       count(t.id)::bigint as total_tasks,
-      count(t.id) filter (where t.status='done')::bigint as completed_tasks
+      count(t.id) filter (where t.status='done') as completed_tasks
     from public.company_members cm
     left join public.company_projects cp on cp.company_id=cm.company_id
     left join public.project_tasks t on t.project_id=cp.project_id and t.assigned_to_user_id=cm.user_id
