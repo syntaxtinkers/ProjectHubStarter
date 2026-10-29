@@ -81,3 +81,44 @@ begin
 end;
 $$;
 grant execute on function public.get_company_employee_metrics_v2(uuid) to authenticated;
+
+-- Versioned attendance functions treat only approved leave as leave.
+create or replace function public.get_company_attendance_schedule_v2(p_company_id uuid, p_date date default ((now() at time zone 'Asia/Kolkata')::date))
+returns table(user_id uuid,employee_name text,employee_email text,attendance_date date,attendance_status text,work_mode text,started_at timestamptz,editable_until timestamptz,is_frozen boolean,leave_start date,leave_end date,leave_reason text)
+language sql stable security definer set search_path=''
+as $$
+ select cm.user_id,
+  coalesce(nullif(cm.full_name,''),nullif(u.raw_user_meta_data->>'full_name',''),split_part(coalesce(u.email,''),'@',1)),
+  u.email::text,p_date,
+  case when l.id is not null then 'on_leave' when a.id is not null and a.ended_at is null then 'working' else 'not_signed_in' end,
+  a.work_mode,a.started_at,a.editable_until,
+  coalesce(a.frozen_at is not null or a.editable_until<=now(),false),
+  l.start_date,l.end_date,l.reason
+ from public.company_members cm join auth.users u on u.id=cm.user_id
+ left join public.company_attendance a on a.company_id=cm.company_id and a.user_id=cm.user_id and a.attendance_date=p_date
+ left join lateral (select x.id,x.start_date,x.end_date,x.reason from public.company_leave x
+  where x.company_id=cm.company_id and x.user_id=cm.user_id and x.status='active'
+   and coalesce(x.approval_status,'approved')='approved' and p_date between x.start_date and x.end_date
+  order by x.start_date limit 1) l on true
+ where cm.company_id=p_company_id and cm.role='employee' and public.is_company_admin(p_company_id)
+ order by coalesce(nullif(cm.full_name,''),split_part(coalesce(u.email,''),'@',1))
+$$;
+grant execute on function public.get_company_attendance_schedule_v2(uuid,date) to authenticated;
+
+create or replace function public.get_company_attendance_notification_rows_v2(p_date date default ((now() at time zone 'Asia/Kolkata')::date))
+returns table(company_id uuid,company_name text,group_id text,group_name text,user_id uuid,employee_name text,attendance_date date,attendance_status text,work_mode text,started_at timestamptz)
+language sql stable security definer set search_path=''
+as $$
+ select c.id,c.name,w.group_id,w.group_name,cm.user_id,
+  coalesce(nullif(cm.full_name,''),nullif(u.raw_user_meta_data->>'full_name',''),split_part(coalesce(u.email,''),'@',1)),
+  p_date,case when l.user_id is not null then 'on_leave' when a.id is not null and a.ended_at is null then 'working' else 'not_signed_in' end,
+  a.work_mode,a.started_at
+ from public.company_whatsapp_settings w join public.companies c on c.id=w.company_id
+ join public.company_members cm on cm.company_id=w.company_id and cm.role='employee'
+ join auth.users u on u.id=cm.user_id
+ left join public.company_attendance a on a.company_id=cm.company_id and a.user_id=cm.user_id and a.attendance_date=p_date
+ left join lateral (select x.user_id from public.company_leave x where x.company_id=cm.company_id and x.user_id=cm.user_id and x.status='active'
+  and coalesce(x.approval_status,'approved')='approved' and p_date between x.start_date and x.end_date order by x.start_date limit 1) l on true
+ where w.enabled=true order by c.name,6
+$$;
+grant execute on function public.get_company_attendance_notification_rows_v2(date) to service_role;
