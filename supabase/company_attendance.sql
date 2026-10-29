@@ -4,8 +4,8 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.company_attendance (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references public.companies(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  company_id uuid not null references public.companies(id),
+  user_id uuid not null references auth.users(id),
   attendance_date date not null default ((now() at time zone 'Asia/Kolkata')::date),
   work_mode text not null check (work_mode in ('office','work_from_home')),
   started_at timestamptz not null default now(),
@@ -18,8 +18,8 @@ create table if not exists public.company_attendance (
 
 create table if not exists public.company_leave (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references public.companies(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  company_id uuid not null references public.companies(id),
+  user_id uuid not null references auth.users(id),
   start_date date not null,
   end_date date not null,
   reason text check (reason is null or char_length(reason) <= 1000),
@@ -30,7 +30,7 @@ create table if not exists public.company_leave (
 );
 
 create table if not exists public.company_whatsapp_settings (
-  company_id uuid primary key references public.companies(id) on delete cascade,
+  company_id uuid primary key references public.companies(id),
   group_name text not null default 'Brickmen group' check (char_length(trim(group_name)) between 1 and 120),
   group_id text not null,
   enabled boolean not null default false,
@@ -41,9 +41,9 @@ create table if not exists public.company_whatsapp_settings (
 );
 
 create table if not exists public.company_attendance_notification_runs (
-  company_id uuid not null references public.companies(id) on delete cascade,
+  company_id uuid not null references public.companies(id),
   attendance_date date not null,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id),
   status text not null default 'pending' check (status in ('pending','sending','sent','error')),
   sent_at timestamptz,
   provider_message_id text,
@@ -61,22 +61,38 @@ alter table public.company_leave enable row level security;
 alter table public.company_whatsapp_settings enable row level security;
 alter table public.company_attendance_notification_runs enable row level security;
 
-drop policy if exists "Members read own or admins read company attendance" on public.company_attendance;
-create policy "Members read own or admins read company attendance" on public.company_attendance
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_attendance' AND policyname = 'Members read own or admins read company attendance'
+  ) THEN
+    EXECUTE $policy_body$create policy "Members read own or admins read company attendance" on public.company_attendance
 for select to authenticated using (
   public.is_company_member(company_id) and (user_id = (select auth.uid()) or public.is_company_admin(company_id))
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Employees insert own attendance" on public.company_attendance;
-create policy "Employees insert own attendance" on public.company_attendance
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_attendance' AND policyname = 'Employees insert own attendance'
+  ) THEN
+    EXECUTE $policy_body$create policy "Employees insert own attendance" on public.company_attendance
 for insert to authenticated with check (
   user_id = (select auth.uid())
   and public.is_company_member(company_id)
   and attendance_date = ((now() at time zone 'Asia/Kolkata')::date)
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Employees can update attendance within one hour" on public.company_attendance;
-create policy "Employees can update attendance within one hour" on public.company_attendance
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_attendance' AND policyname = 'Employees can update attendance within one hour'
+  ) THEN
+    EXECUTE $policy_body$create policy "Employees can update attendance within one hour" on public.company_attendance
 for update to authenticated using (
   user_id = (select auth.uid())
   and editable_until > now()
@@ -87,26 +103,44 @@ for update to authenticated using (
   and editable_until > now()
   and frozen_at is null
   and public.is_company_member(company_id)
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Members read own leave or admins read company leave" on public.company_leave;
-create policy "Members read own leave or admins read company leave" on public.company_leave
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_leave' AND policyname = 'Members read own leave or admins read company leave'
+  ) THEN
+    EXECUTE $policy_body$create policy "Members read own leave or admins read company leave" on public.company_leave
 for select to authenticated using (
   public.is_company_member(company_id) and (user_id = (select auth.uid()) or public.is_company_admin(company_id))
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Employees submit own leave" on public.company_leave;
-create policy "Employees submit own leave" on public.company_leave
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_leave' AND policyname = 'Employees submit own leave'
+  ) THEN
+    EXECUTE $policy_body$create policy "Employees submit own leave" on public.company_leave
 for insert to authenticated with check (
   user_id = (select auth.uid())
   and public.is_company_member(company_id)
   and start_date >= ((now() at time zone 'Asia/Kolkata')::date)
   and end_date >= start_date
   and status = 'active'
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Employees edit upcoming leave" on public.company_leave;
-create policy "Employees edit upcoming leave" on public.company_leave
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_leave' AND policyname = 'Employees edit upcoming leave'
+  ) THEN
+    EXECUTE $policy_body$create policy "Employees edit upcoming leave" on public.company_leave
 for update to authenticated using (
   user_id = (select auth.uid())
   and start_date >= ((now() at time zone 'Asia/Kolkata')::date)
@@ -116,20 +150,40 @@ for update to authenticated using (
   and start_date >= ((now() at time zone 'Asia/Kolkata')::date)
   and end_date >= start_date
   and public.is_company_member(company_id)
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Company admins read WhatsApp delivery settings" on public.company_whatsapp_settings;
-create policy "Company admins read WhatsApp delivery settings" on public.company_whatsapp_settings
-for select to authenticated using (public.is_company_admin(company_id));
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_whatsapp_settings' AND policyname = 'Company admins read WhatsApp delivery settings'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins read WhatsApp delivery settings" on public.company_whatsapp_settings
+for select to authenticated using (public.is_company_admin(company_id))$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Company admins save WhatsApp delivery settings" on public.company_whatsapp_settings;
-create policy "Company admins save WhatsApp delivery settings" on public.company_whatsapp_settings
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_whatsapp_settings' AND policyname = 'Company admins save WhatsApp delivery settings'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins save WhatsApp delivery settings" on public.company_whatsapp_settings
 for all to authenticated using (public.is_company_admin(company_id))
-with check (public.is_company_admin(company_id));
+with check (public.is_company_admin(company_id))$policy_body$;
+  END IF;
+END $safe_policy$;
 
-drop policy if exists "Company admins can read notification delivery status" on public.company_attendance_notification_runs;
-create policy "Company admins can read notification delivery status" on public.company_attendance_notification_runs
-for select to authenticated using (public.is_company_admin(company_id));
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_attendance_notification_runs' AND policyname = 'Company admins can read notification delivery status'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins can read notification delivery status" on public.company_attendance_notification_runs
+for select to authenticated using (public.is_company_admin(company_id))$policy_body$;
+  END IF;
+END $safe_policy$;
 
 grant select on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to authenticated;
 grant all privileges on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to service_role;
@@ -171,9 +225,15 @@ begin
 end;
 $$;
 
-drop trigger if exists company_attendance_guard on public.company_attendance;
-create trigger company_attendance_guard before insert or update on public.company_attendance
-for each row execute function public.guard_company_attendance();
+DO $safe_trigger$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.triggers
+    WHERE trigger_schema = 'public' AND event_object_table = 'company_attendance' AND trigger_name = 'company_attendance_guard'
+  ) THEN
+    EXECUTE $trigger_body$create trigger company_attendance_guard before insert or update on public.company_attendance
+for each row execute function public.guard_company_attendance()$trigger_body$;
+  END IF;
+END $safe_trigger$;
 
 create or replace function public.guard_company_leave()
 returns trigger
@@ -203,9 +263,15 @@ begin
 end;
 $$;
 
-drop trigger if exists company_leave_guard on public.company_leave;
-create trigger company_leave_guard before insert or update on public.company_leave
-for each row execute function public.guard_company_leave();
+DO $safe_trigger$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.triggers
+    WHERE trigger_schema = 'public' AND event_object_table = 'company_leave' AND trigger_name = 'company_leave_guard'
+  ) THEN
+    EXECUTE $trigger_body$create trigger company_leave_guard before insert or update on public.company_leave
+for each row execute function public.guard_company_leave()$trigger_body$;
+  END IF;
+END $safe_trigger$;
 
 create or replace function public.get_company_attendance_schedule(p_company_id uuid, p_date date default ((now() at time zone 'Asia/Kolkata')::date))
 returns table(
