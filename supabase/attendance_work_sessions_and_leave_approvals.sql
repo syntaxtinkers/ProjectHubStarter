@@ -49,7 +49,7 @@ GRANT INSERT (company_id, user_id, attendance_date, work_mode, work_location) ON
 alter table public.project_stages add column if not exists assigned_to_user_id uuid;
 alter table public.project_stages add column if not exists assigned_by_user_id uuid;
 
-create or replace function public.get_company_employee_metrics(p_company_id uuid)
+create or replace function public.get_company_employee_metrics_v2(p_company_id uuid)
 returns table(user_id uuid,total_tasks bigint,completed_tasks bigint,total_stages bigint,completed_stages bigint)
 language plpgsql
 stable
@@ -80,4 +80,4 @@ begin
     where cm.company_id=p_company_id;
 end;
 $$;
-grant execute on function public.get_company_employee_metrics(uuid) to authenticated;
+grant execute on function public.get_company_employee_metrics_v2(uuid) to authenticated;
