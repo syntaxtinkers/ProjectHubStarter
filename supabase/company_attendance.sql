@@ -343,7 +343,7 @@ as $$
   ) l on true
   where s.enabled = true
   order by c.name, 6
-$;
+$$;
 revoke all on function public.get_company_attendance_notification_rows(date) from public, anon, authenticated;
 grant execute on function public.get_company_attendance_notification_rows(date) to service_role;
 
