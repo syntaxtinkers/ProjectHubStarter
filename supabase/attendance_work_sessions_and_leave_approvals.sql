@@ -42,3 +42,5 @@ DO $leave_admin_policy$ BEGIN
       WITH CHECK (public.is_company_admin(company_id));
   END IF;
 END; $leave_admin_policy$;
+
+GRANT INSERT (company_id, user_id, attendance_date, work_mode, work_location) ON public.company_attendance TO authenticated;
