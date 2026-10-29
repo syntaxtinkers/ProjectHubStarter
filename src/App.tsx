@@ -924,7 +924,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
    <div className="panel-heading"><div><h2>My daily work mode</h2><p>Today's date in India: {shortDate(today)} · Check-in time is recorded by the server.</p></div><Clock3 size={19}/></div>
    {onLeaveToday&&<div className="attendance-alert"><CalendarDays size={16}/> You are marked on leave today.</div>}
    <div className="attendance-checkin-row"><div className="attendance-checkin-details"><span className="eyebrow">{todayRecord?'TODAY’S ENTRY':'START WORK'}</span><b>{todayRecord?'Entered work mode at '+indiaTime(todayRecord.started_at):'Choose how you are working today'}</b><small>{todayRecord?(editable?'Editable until '+indiaTime(todayRecord.editable_until):'Frozen · corrections closed at '+indiaTime(todayRecord.editable_until)):'Your entry becomes immutable one hour after you check in.'}</small></div>
-    <label>Work location<select value={workMode} onChange={e=>setWorkMode(e.target.value as 'office'|'work_from_home')} disabled={Boolean(todayRecord&&!editable)||onLeaveToday}><option value="office">Office</option><option value="work_from_home">Work from home</option></select></label>
+    <label>Work location<select value={workMode} onChange={e=>setWorkMode(e.target.value as 'office'|'site'|'home')} disabled={Boolean(todayRecord&&!editable)||onLeaveToday}><option value="office">Office</option><option value="site">Site</option><option value="home">Home</option></select></label>
     <button className="primary" onClick={()=>void startOrUpdateWork()} disabled={busy||onLeaveToday||Boolean(todayRecord&&!editable)}>{busy?'Saving…':todayRecord?'Update location':'Start work'}</button>
    </div>
   </section>
