@@ -96,5 +96,5 @@ select cron.schedule(
 select cron.schedule(
   'company-daily-work-default-status',
   '35 18 * * *',
-  $ select public.materialize_daily_work_defaults(((now() at time zone 'Asia/Kolkata')::date - 1)); $
+  $$ select public.materialize_daily_work_defaults(((now() at time zone 'Asia/Kolkata')::date - 1)); $$
 );
