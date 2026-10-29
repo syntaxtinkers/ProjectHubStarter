@@ -14,7 +14,7 @@ create index if not exists project_tasks_assigner_dates_idx
 create table if not exists public.task_daily_updates (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.project_tasks(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id),
   work_date date not null,
   week_start date not null,
   status text not null default 'not_started' check (status in ('not_started','ongoing','completed')),
@@ -125,15 +125,21 @@ begin
   return new;
 end;
 $$;
-drop trigger if exists project_tasks_guard_assignment_users on public.project_tasks;
-create trigger project_tasks_guard_assignment_users
+DO $safe_trigger$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.triggers
+    WHERE trigger_schema = 'public' AND event_object_table = 'project_tasks' AND trigger_name = 'project_tasks_guard_assignment_users'
+  ) THEN
+    EXECUTE $trigger_body$create trigger project_tasks_guard_assignment_users
 before insert or update of project_id, assigned_to_user_id, assigned_by_user_id on public.project_tasks
-for each row execute function public.guard_task_assignment_users();
+for each row execute function public.guard_task_assignment_users()$trigger_body$;
+  END IF;
+END $safe_trigger$;
 
 -- Private contact data is available only to company admins and service-side delivery.
 create table if not exists public.company_member_contacts (
-  company_id uuid not null references public.companies(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  company_id uuid not null references public.companies(id),
+  user_id uuid not null references auth.users(id),
   phone_e164 text not null check (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),
   whatsapp_opted_in boolean not null default false,
   updated_at timestamptz not null default now(),
