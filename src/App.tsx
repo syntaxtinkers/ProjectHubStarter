@@ -835,7 +835,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
    }
    if(leaveResult.error)setMessage('Could not load your leave history: '+leaveResult.error.message)
    else setMyLeaves((leaveResult.data??[]) as CompanyLeaveRecord[])
-   if(isAdmin){const pendingResult=await supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at').eq('company_id',company.id).eq('approval_status','pending').order('created_at',{ascending:false});if(alive&&!pendingResult.error)setPendingLeaves((pendingResult.data??[]) as CompanyLeaveRecord[])}else setPendingLeaves([])
+   if(isAdmin){const pendingResult=await supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at') .eq('company_id',company.id).eq('status','active').eq('approval_status','pending').order('created_at',{ascending:false});if(alive&&!pendingResult.error)setPendingLeaves((pendingResult.data??[]) as CompanyLeaveRecord[])}else setPendingLeaves([])
    if(isAdmin){
     const [scheduleResult,settingsResult]=await Promise.all([
      supabase.rpc('get_company_attendance_schedule',{p_company_id:company.id,p_date:scheduleDate}),
@@ -943,7 +943,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
   <section className="panel">
    <div className="panel-heading"><div><h2>My attendance history</h2><p>Your own entries only. Records become immutable after the first hour.</p></div><Clock3 size={18}/></div>
    <div className="compact-table-wrap attendance-history-wrap"><table className="compact-table attendance-history-table"><thead><tr><th>Date</th><th>Work mode</th><th>Entry time</th><th>Correction window</th><th>Status</th></tr></thead><tbody>
-    {myAttendance.map(record=><tr key={record.id}><td>{shortDate(record.attendance_date)}</td><td>{record.work_mode==='work_from_home'?'Work from home':'Office'}</td><td>{indiaTime(record.started_at)}</td><td>{indiaTime(record.editable_until)}</td><td><span className={'company-role-pill '+(record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'employee':'admin')}>{record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'Frozen':'Editable'}</span></td></tr>)}
+    {myAttendance.map(record=><tr key={record.id}><td>{shortDate(record.attendance_date)}</td><td>{record.work_location==='site'?'Site':record.work_location==='home'||record.work_mode==='work_from_home'?'Work from home':'Office'}</td><td>{indiaTime(record.started_at)}</td><td>{indiaTime(record.editable_until)}</td><td><span className={'company-role-pill '+(record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'employee':'admin')}>{record.frozen_at||new Date(record.editable_until).getTime()<=Date.now()?'Frozen':'Editable'}</span></td></tr>)}
     {myAttendance.length===0&&<tr><td colSpan={5}>No attendance records yet.</td></tr>}
    </tbody></table></div>
   </section>
