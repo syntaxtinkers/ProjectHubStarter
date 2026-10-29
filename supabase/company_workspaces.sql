@@ -72,79 +72,133 @@ alter table public.company_invitations enable row level security;
 -- SECURITY DEFINER helpers avoid recursive RLS references when policies check company membership.
 create or replace function public.is_company_member(target_company uuid)
 returns boolean language sql stable security definer set search_path = ''
-as $
+as $$
   select exists (select 1 from public.company_members m where m.company_id = target_company and m.user_id = (select auth.uid()))
-$;
+$$;
 create or replace function public.is_company_admin(target_company uuid)
 returns boolean language sql stable security definer set search_path = ''
-as $
+as $$
   select exists (select 1 from public.company_members m where m.company_id = target_company and m.user_id = (select auth.uid()) and m.role = 'admin')
-$;
+$$;
 revoke all on function public.is_company_member(uuid) from public;
 revoke all on function public.is_company_admin(uuid) from public;
 grant execute on function public.is_company_member(uuid), public.is_company_admin(uuid) to authenticated;
 
-drop policy if exists "Company members can read their companies" on public.companies;
-create policy "Company members can read their companies" on public.companies
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'companies' AND policyname = 'Company members can read their companies'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company members can read their companies" on public.companies
   for select to authenticated using (
     public.is_company_member(companies.id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company admins can update company profile" on public.companies;
-create policy "Company admins can update company profile" on public.companies
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'companies' AND policyname = 'Company admins can update company profile'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins can update company profile" on public.companies
   for update to authenticated using (
     public.is_company_admin(companies.id)
   ) with check (
     public.is_company_admin(companies.id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company members can read their company roster" on public.company_members;
-create policy "Company members can read their company roster" on public.company_members
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_members' AND policyname = 'Company members can read their company roster'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company members can read their company roster" on public.company_members
   for select to authenticated using (
     public.is_company_member(company_members.company_id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company admins can update member records" on public.company_members;
-create policy "Company admins can update member records" on public.company_members
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_members' AND policyname = 'Company admins can update member records'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins can update member records" on public.company_members
   for update to authenticated using (
     public.is_company_admin(company_members.company_id)
     and company_members.user_id <> (select auth.uid())
   ) with check (
     public.is_company_admin(company_members.company_id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company admins can remove other members" on public.company_members;
-create policy "Company admins can remove other members" on public.company_members
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_members' AND policyname = 'Company admins can remove other members'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins can remove other members" on public.company_members
   for delete to authenticated using (
     public.is_company_admin(company_members.company_id)
     and company_members.user_id <> (select auth.uid())
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company members can view linked projects" on public.company_projects;
-create policy "Company members can view linked projects" on public.company_projects
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_projects' AND policyname = 'Company members can view linked projects'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company members can view linked projects" on public.company_projects
   for select to authenticated using (
     public.is_company_member(company_projects.company_id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company members can view project assignments" on public.company_project_assignments;
-create policy "Company members can view project assignments" on public.company_project_assignments
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_project_assignments' AND policyname = 'Company members can view project assignments'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company members can view project assignments" on public.company_project_assignments
   for select to authenticated using (
     public.is_company_member(company_project_assignments.company_id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company admins can manage project assignments" on public.company_project_assignments;
-create policy "Company admins can manage project assignments" on public.company_project_assignments
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_project_assignments' AND policyname = 'Company admins can manage project assignments'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins can manage project assignments" on public.company_project_assignments
   for all to authenticated using (
     public.is_company_admin(company_project_assignments.company_id)
   ) with check (
     public.is_company_admin(company_project_assignments.company_id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
-drop policy if exists "Company admins can view invitations" on public.company_invitations;
-create policy "Company admins can view invitations" on public.company_invitations
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_invitations' AND policyname = 'Company admins can view invitations'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins can view invitations" on public.company_invitations
   for select to authenticated using (
     public.is_company_admin(company_invitations.company_id)
-  );
+  )$policy_body$;
+  END IF;
+END; $safe_policy$;
 
 grant select on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to authenticated;
 grant all privileges on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to service_role;
@@ -314,18 +368,28 @@ grant execute on function public.accept_company_invitations() to authenticated;
 -- Public logo bucket; writes are restricted to company admins using a company-id folder.
 insert into storage.buckets(id, name, public)
 values ('company-logos', 'company-logos', true)
-on conflict (id) do update set public = true;
+on conflict (id) do nothing;
 
-drop policy if exists "Company admins upload logos" on storage.objects;
-create policy "Company admins upload logos" on storage.objects for insert to authenticated
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Company admins upload logos'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins upload logos" on storage.objects for insert to authenticated
 with check (
   bucket_id = 'company-logos' and exists (
     select 1 from public.company_members m
     where m.company_id::text = split_part(name, '/', 1) and m.user_id = (select auth.uid()) and m.role = 'admin'
   )
-);
-drop policy if exists "Company admins update logos" on storage.objects;
-create policy "Company admins update logos" on storage.objects for update to authenticated
+)$policy_body$;
+  END IF;
+END; $safe_policy$;
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Company admins update logos'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins update logos" on storage.objects for update to authenticated
 using (
   bucket_id = 'company-logos' and exists (
     select 1 from public.company_members m
@@ -336,14 +400,22 @@ using (
     select 1 from public.company_members m
     where m.company_id::text = split_part(name, '/', 1) and m.user_id = (select auth.uid()) and m.role = 'admin'
   )
-);
-drop policy if exists "Company admins delete logos" on storage.objects;
-create policy "Company admins delete logos" on storage.objects for delete to authenticated
+)$policy_body$;
+  END IF;
+END; $safe_policy$;
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Company admins delete logos'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins delete logos" on storage.objects for delete to authenticated
 using (
   bucket_id = 'company-logos' and exists (
     select 1 from public.company_members m
     where m.company_id::text = split_part(name, '/', 1) and m.user_id = (select auth.uid()) and m.role = 'admin'
   )
-);
+)$policy_body$;
+  END IF;
+END; $safe_policy$;
 
 grant usage on schema public to authenticated, anon;

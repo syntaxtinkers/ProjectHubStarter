@@ -14,7 +14,7 @@ create index if not exists project_tasks_assigner_dates_idx
 create table if not exists public.task_daily_updates (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.project_tasks(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id),
   work_date date not null,
   week_start date not null,
   status text not null default 'not_started' check (status in ('not_started','ongoing','completed')),
@@ -30,8 +30,12 @@ create index if not exists task_daily_updates_user_week_idx on public.task_daily
 create index if not exists task_daily_updates_task_date_idx on public.task_daily_updates(task_id, work_date);
 alter table public.task_daily_updates enable row level security;
 
-drop policy if exists "Users read daily updates for accessible assigned tasks" on public.task_daily_updates;
-create policy "Users read daily updates for accessible assigned tasks"
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'task_daily_updates' AND policyname = 'Users read daily updates for accessible assigned tasks'
+  ) THEN
+    EXECUTE $policy_body$create policy "Users read daily updates for accessible assigned tasks"
 on public.task_daily_updates for select to authenticated
 using (
   user_id = (select auth.uid())
@@ -45,17 +49,29 @@ using (
     join public.company_projects cp on cp.project_id = t.project_id
     where t.id = task_daily_updates.task_id and public.is_company_admin(cp.company_id)
   )
-);
-drop policy if exists "Users create their own daily updates" on public.task_daily_updates;
-create policy "Users create their own daily updates"
+)$policy_body$;
+  END IF;
+END; $safe_policy$;
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'task_daily_updates' AND policyname = 'Users create their own daily updates'
+  ) THEN
+    EXECUTE $policy_body$create policy "Users create their own daily updates"
 on public.task_daily_updates for insert to authenticated
 with check (
   user_id = (select auth.uid())
   and updated_by = (select auth.uid())
   and exists (select 1 from public.project_tasks t where t.id = task_daily_updates.task_id and t.assigned_to_user_id = (select auth.uid()))
-);
-drop policy if exists "Users update their own daily updates" on public.task_daily_updates;
-create policy "Users update their own daily updates"
+)$policy_body$;
+  END IF;
+END; $safe_policy$;
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'task_daily_updates' AND policyname = 'Users update their own daily updates'
+  ) THEN
+    EXECUTE $policy_body$create policy "Users update their own daily updates"
 on public.task_daily_updates for update to authenticated
 using (
   user_id = (select auth.uid())
@@ -65,7 +81,9 @@ with check (
   user_id = (select auth.uid())
   and updated_by = (select auth.uid())
   and exists (select 1 from public.project_tasks t where t.id = task_daily_updates.task_id and t.assigned_to_user_id = (select auth.uid()))
-);
+)$policy_body$;
+  END IF;
+END; $safe_policy$;
 grant select, insert, update on public.task_daily_updates to authenticated;
 grant all privileges on public.task_daily_updates to service_role;
 
@@ -125,15 +143,21 @@ begin
   return new;
 end;
 $$;
-drop trigger if exists project_tasks_guard_assignment_users on public.project_tasks;
-create trigger project_tasks_guard_assignment_users
+DO $safe_trigger$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.triggers
+    WHERE trigger_schema = 'public' AND event_object_table = 'project_tasks' AND trigger_name = 'project_tasks_guard_assignment_users'
+  ) THEN
+    EXECUTE $trigger_body$create trigger project_tasks_guard_assignment_users
 before insert or update of project_id, assigned_to_user_id, assigned_by_user_id on public.project_tasks
-for each row execute function public.guard_task_assignment_users();
+for each row execute function public.guard_task_assignment_users()$trigger_body$;
+  END IF;
+END; $safe_trigger$;
 
 -- Private contact data is available only to company admins and service-side delivery.
 create table if not exists public.company_member_contacts (
-  company_id uuid not null references public.companies(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  company_id uuid not null references public.companies(id),
+  user_id uuid not null references auth.users(id),
   phone_e164 text not null check (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),
   whatsapp_opted_in boolean not null default false,
   updated_at timestamptz not null default now(),
@@ -143,11 +167,17 @@ create table if not exists public.company_member_contacts (
 );
 alter table public.company_member_contacts add column if not exists whatsapp_opted_in boolean not null default false;
 alter table public.company_member_contacts enable row level security;
-drop policy if exists "Company admins manage private member contacts" on public.company_member_contacts;
-create policy "Company admins manage private member contacts"
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_member_contacts' AND policyname = 'Company admins manage private member contacts'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins manage private member contacts"
 on public.company_member_contacts for all to authenticated
 using (public.is_company_admin(company_id))
-with check (public.is_company_admin(company_id));
+with check (public.is_company_admin(company_id))$policy_body$;
+  END IF;
+END; $safe_policy$;
 grant select,insert,update,delete on public.company_member_contacts to authenticated;
 grant all privileges on public.company_member_contacts to service_role;
 
