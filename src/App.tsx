@@ -26,7 +26,7 @@ type Company = { id: string; name: string; slug: string; logo_url: string | null
 type CompanyMember = { user_id: string; email: string; full_name: string; role: CompanyRole; job_title: string | null; phone_e164?: string | null; whatsapp_opted_in?: boolean; joined_at: string }
 type CompanyProjectRow = { project_id: string; project_name: string; project_description: string | null; stage_id: string | null; stage_name: string | null; stage_start: string | null; stage_end: string | null; stage_order: number; assigned_employees: string[] }
 type CompanyAssignment = { company_id: string; project_id: string; user_id: string; assigned_by: string; assigned_at: string }
-type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'site' | 'work_from_home'; started_at: string; editable_until: string; frozen_at: string | null; ended_at?: string|null; paused_at?: string|null; paused_seconds?: number; work_state?: 'working'|'paused'|'ended' }
+type AttendanceRecord = { id: string; company_id: string; user_id: string; attendance_date: string; work_mode: 'office' | 'work_from_home'; work_location?: 'office'|'site'|'home'; started_at: string; editable_until: string; frozen_at: string | null; ended_at?: string|null; paused_at?: string|null; paused_seconds?: number; work_state?: 'working'|'paused'|'ended' }
 type CompanyLeaveRecord = { id: string; company_id: string; user_id: string; start_date: string; end_date: string; reason: string | null; status: 'active' | 'cancelled'; approval_status?: 'pending'|'approved'|'rejected'; approved_by?: string|null; decision_at?: string|null; approval_note?: string|null; created_at: string; updated_at: string }
 type AttendanceScheduleRow = { user_id: string; employee_name: string; employee_email: string; attendance_date: string; attendance_status: 'working' | 'on_leave' | 'not_signed_in'; work_mode: string | null; started_at: string | null; editable_until: string | null; is_frozen: boolean; leave_start: string | null; leave_end: string | null; leave_reason: string | null }
 type CompanyWhatsAppSettings = { company_id: string; group_name: string; group_id: string; enabled: boolean; timezone: string; updated_by: string | null; updated_at: string }
@@ -794,7 +794,9 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
  const [myAttendance,setMyAttendance]=useState<AttendanceRecord[]>([])
  const [myLeaves,setMyLeaves]=useState<CompanyLeaveRecord[]>([])
  const [schedule,setSchedule]=useState<AttendanceScheduleRow[]>([])
- const [workMode,setWorkMode]=useState<'office'|'work_from_home'>('office')
+ const [workMode,setWorkMode]=useState<'office'|'site'|'home'>('office')
+ const [clockNow,setClockNow]=useState(Date.now())
+ const [showLeaveForm,setShowLeaveForm]=useState(false)
  const [leaveStart,setLeaveStart]=useState(indiaDate())
  const [leaveEnd,setLeaveEnd]=useState(indiaDate())
  const [leaveReason,setLeaveReason]=useState('')
@@ -806,16 +808,19 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
  const [waEnabled,setWaEnabled]=useState(false)
  const today=indiaDate()
  const todayRecord=myAttendance.find(record=>record.attendance_date===today)
+ const workElapsedSeconds=todayRecord?Math.max(0,Math.floor(((todayRecord.ended_at?new Date(todayRecord.ended_at).getTime():todayRecord.paused_at?new Date(todayRecord.paused_at).getTime():clockNow)-new Date(todayRecord.started_at).getTime())/1000)-(todayRecord.paused_seconds??0)):0
+ const timerSeconds=Math.max(0,workElapsedSeconds)
  const editable=Boolean(todayRecord&&!todayRecord.frozen_at&&new Date(todayRecord.editable_until).getTime()>Date.now())
  const onLeaveToday=myLeaves.some(leave=>leave.status==='active'&&leave.start_date<=today&&leave.end_date>=today)
 
+ useEffect(()=>{const timer=window.setInterval(()=>setClockNow(Date.now()),1000);return()=>window.clearInterval(timer)},[])
  useEffect(()=>{
   let alive=true
   async function load(){
    if(!supabase){setLoading(false);return}
    setLoading(true)
    const [attendanceResult,leaveResult]=await Promise.all([
-    supabase.from('company_attendance').select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('attendance_date',{ascending:false}).limit(60),
+    supabase.from('company_attendance').select('id,company_id,user_id,attendance_date,work_mode,work_location,started_at,editable_until,frozen_at,ended_at,paused_at,paused_seconds,work_state').eq('company_id',company.id).eq('user_id',currentUser.id).order('attendance_date',{ascending:false}).limit(60),
     supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('start_date',{ascending:false}).limit(60)
    ])
    if(!alive)return
@@ -824,7 +829,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
     const loadedAttendance=(attendanceResult.data??[]) as AttendanceRecord[]
     setMyAttendance(loadedAttendance)
     const todayEntry=loadedAttendance.find(record=>record.attendance_date===indiaDate())
-    setWorkMode(todayEntry?.work_mode??'office')
+    setWorkMode(todayEntry?.work_location??(todayEntry?.work_mode==='work_from_home'?'home':'office'))
    }
    if(leaveResult.error)setMessage('Could not load your leave history: '+leaveResult.error.message)
    else setMyLeaves((leaveResult.data??[]) as CompanyLeaveRecord[])
@@ -852,11 +857,11 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
   setBusy(true);setMessage('')
   if(todayRecord){
    if(!editable){setMessage('This attendance entry is frozen. Work location can only be changed within the first hour after check-in.');setBusy(false);return}
-   const {data,error}=await supabase.from('company_attendance').update({work_mode:workMode}).eq('id',todayRecord.id).select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').single()
+   const {data,error}=await supabase.from('company_attendance').update({work_mode:workMode==='home'?'work_from_home':'office',work_location:workMode}).eq('id',todayRecord.id).select('id,company_id,user_id,attendance_date,work_mode,work_location,started_at,editable_until,frozen_at,ended_at,paused_at,paused_seconds,work_state').single()
    if(error)setMessage('Could not update attendance: '+error.message)
    else {setMyAttendance(current=>current.map(row=>row.id===data.id?data as AttendanceRecord:row));setMessage('Work location updated. Your original check-in time has not changed.')}
   }else{
-   const {data,error}=await supabase.from('company_attendance').insert({company_id:company.id,user_id:currentUser.id,attendance_date:today,work_mode:workMode}).select('id,company_id,user_id,attendance_date,work_mode,started_at,editable_until,frozen_at').single()
+   const {data,error}=await supabase.from('company_attendance').insert({company_id:company.id,user_id:currentUser.id,attendance_date:today,work_mode:workMode==='home'?'work_from_home':'office',work_location:workMode}).select('id,company_id,user_id,attendance_date,work_mode,work_location,started_at,editable_until,frozen_at,ended_at,paused_at,paused_seconds,work_state').single()
    if(error)setMessage('Could not start work mode: '+error.message)
    else {setMyAttendance(current=>[data as AttendanceRecord,...current.filter(row=>row.attendance_date!==today)]);setMessage('Work mode started. You have one hour to correct the work location; the entry time will remain fixed.')}
   }
