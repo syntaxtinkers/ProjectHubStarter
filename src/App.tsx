@@ -891,7 +891,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
   e.preventDefault()
   if(!supabase||leaveEnd<leaveStart||leaveStart<today){setMessage('Choose a valid leave period starting today or later.');return}
   setBusy(true);setMessage('')
-  const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null,approval_status:'pending'}).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null,approval_status:'pending'}).select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at').single()
   if(error)setMessage('Could not submit leave: '+error.message)
   else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setShowLeaveForm(false);const notify=await supabase.functions.invoke('send-leave-request-whatsapp',{body:{company_id:company.id,leave_id:(data as CompanyLeaveRecord).id}});setMessage(notify.error?'Leave request submitted for approval. WhatsApp notification could not be sent; check the Edge Function setup.':'Leave request submitted for approval and admin notification queued.')}
   setBusy(false)
@@ -899,7 +899,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
  async function cancelLeave(leave:CompanyLeaveRecord){
   if(!supabase||leave.status!=='active'||leave.start_date<today)return
   if(!confirm(`Cancel leave from ${shortDate(leave.start_date)} to ${shortDate(leave.end_date)}?`))return
-  const {data,error}=await supabase.from('company_leave').update({status:'cancelled'}).eq('id',leave.id).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  const {data,error}=await supabase.from('company_leave').update({status:'cancelled'}).eq('id',leave.id).select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at').single()
   if(error)setMessage('Could not cancel leave: '+error.message)
   else {setMyLeaves(current=>current.map(row=>row.id===leave.id?data as CompanyLeaveRecord:row));setMessage('Upcoming leave cancelled.')}
  }
