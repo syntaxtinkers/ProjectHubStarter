@@ -98,7 +98,7 @@ export default function App() {
   const [inviteRole, setInviteRole] = useState<Role>('editor')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('home')
+  const [tab, setTab] = useState<Tab>(() => new URLSearchParams(window.location.search).has('approveLeave') ? 'attendance' : 'home')
   const [taskFilter, setTaskFilter] = useState<'all' | TaskStatus>('all')
   const [prefs, setPrefs] = useState(initialPrefs)
   const [profileName, setProfileName] = useState('')
