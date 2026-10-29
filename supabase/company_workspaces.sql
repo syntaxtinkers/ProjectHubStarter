@@ -72,14 +72,14 @@ alter table public.company_invitations enable row level security;
 -- SECURITY DEFINER helpers avoid recursive RLS references when policies check company membership.
 create or replace function public.is_company_member(target_company uuid)
 returns boolean language sql stable security definer set search_path = ''
-as $
+as $$
   select exists (select 1 from public.company_members m where m.company_id = target_company and m.user_id = (select auth.uid()))
-$;
+$$;
 create or replace function public.is_company_admin(target_company uuid)
 returns boolean language sql stable security definer set search_path = ''
-as $
+as $$
   select exists (select 1 from public.company_members m where m.company_id = target_company and m.user_id = (select auth.uid()) and m.role = 'admin')
-$;
+$$;
 revoke all on function public.is_company_member(uuid) from public;
 revoke all on function public.is_company_admin(uuid) from public;
 grant execute on function public.is_company_member(uuid), public.is_company_admin(uuid) to authenticated;
