@@ -94,7 +94,7 @@ DO $safe_policy$ BEGIN
     public.is_company_member(companies.id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -108,7 +108,7 @@ DO $safe_policy$ BEGIN
     public.is_company_admin(companies.id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -120,7 +120,7 @@ DO $safe_policy$ BEGIN
     public.is_company_member(company_members.company_id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -135,7 +135,7 @@ DO $safe_policy$ BEGIN
     public.is_company_admin(company_members.company_id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -148,7 +148,7 @@ DO $safe_policy$ BEGIN
     and company_members.user_id <> (select auth.uid())
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -160,7 +160,7 @@ DO $safe_policy$ BEGIN
     public.is_company_member(company_projects.company_id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -172,7 +172,7 @@ DO $safe_policy$ BEGIN
     public.is_company_member(company_project_assignments.company_id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -186,7 +186,7 @@ DO $safe_policy$ BEGIN
     public.is_company_admin(company_project_assignments.company_id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -198,7 +198,7 @@ DO $safe_policy$ BEGIN
     public.is_company_admin(company_invitations.company_id)
   )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 grant select on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to authenticated;
 grant all privileges on public.companies, public.company_members, public.company_projects, public.company_project_assignments, public.company_invitations to service_role;
@@ -383,7 +383,7 @@ with check (
   )
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
@@ -402,7 +402,7 @@ using (
   )
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
@@ -416,6 +416,6 @@ using (
   )
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 grant usage on schema public to authenticated, anon;
