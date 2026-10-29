@@ -4,6 +4,7 @@ alter table public.company_attendance add column if not exists ended_at timestam
 alter table public.company_attendance add column if not exists paused_at timestamptz;
 alter table public.company_attendance add column if not exists paused_seconds integer not null default 0;
 alter table public.company_attendance add column if not exists work_state text not null default 'working';
+alter table public.company_attendance add column if not exists work_location text not null default 'office';
 
 -- Existing leave rows are treated as already accepted; new requests can be pending.
 alter table public.company_leave add column if not exists approval_status text not null default 'approved';
@@ -28,7 +29,7 @@ DO $work_session_policy$ BEGIN
       WITH CHECK (user_id=(select auth.uid()) AND attendance_date=((now() at time zone 'Asia/Kolkata')::date) AND public.is_company_member(company_id));
   END IF;
 END; $work_session_policy$;
-GRANT UPDATE (ended_at, paused_at, paused_seconds, work_state) ON public.company_attendance TO authenticated;
+GRANT UPDATE (ended_at, paused_at, paused_seconds, work_state, work_location) ON public.company_attendance TO authenticated;
 
 -- Employees submit requests as pending; company admins can decide them.
 GRANT INSERT (company_id, user_id, start_date, end_date, reason, approval_status) ON public.company_leave TO authenticated;
