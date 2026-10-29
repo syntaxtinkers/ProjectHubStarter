@@ -989,7 +989,7 @@ function CompanyDashboardMetrics({company,members,rows,isAdmin}:{company:Company
  useEffect(()=>{let alive=true;async function load(){if(!supabase||!isAdmin){setTaskRows([]);setAttendanceRows([]);setLeaveRows([]);return}
  const monthStart=indiaDate().slice(0,7)+'-01';const today=indiaDate()
  const [t,at,l]=await Promise.all([
- supabase.rpc('get_company_employee_metrics',{p_company_id:company.id}),
+ supabase.rpc('get_company_employee_metrics_v2',{p_company_id:company.id}),
  supabase.from('company_attendance').select('user_id,attendance_date').eq('company_id',company.id).gte('attendance_date',monthStart).lte('attendance_date',today),
  supabase.from('company_leave').select('user_id,start_date,end_date,approval_status,status').eq('company_id',company.id).eq('status','active').lte('start_date',today).gte('end_date',monthStart)
  ])
