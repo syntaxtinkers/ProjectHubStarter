@@ -18,3 +18,26 @@ DO $approval_status$ BEGIN
 END; $approval_status$;
 
 create index if not exists company_leave_approval_queue_idx on public.company_leave(company_id,approval_status,created_at desc);
+
+-- Allow employees to pause/resume/end their own current-day work session.
+DO $work_session_policy$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='company_attendance' AND policyname='Employees manage own work session state') THEN
+    CREATE POLICY "Employees manage own work session state" ON public.company_attendance
+      FOR UPDATE TO authenticated
+      USING (user_id=(select auth.uid()) AND attendance_date=((now() at time zone 'Asia/Kolkata')::date) AND public.is_company_member(company_id))
+      WITH CHECK (user_id=(select auth.uid()) AND attendance_date=((now() at time zone 'Asia/Kolkata')::date) AND public.is_company_member(company_id));
+  END IF;
+END; $work_session_policy$;
+GRANT UPDATE (ended_at, paused_at, paused_seconds, work_state) ON public.company_attendance TO authenticated;
+
+-- Employees submit requests as pending; company admins can decide them.
+GRANT INSERT (company_id, user_id, start_date, end_date, reason, approval_status) ON public.company_leave TO authenticated;
+GRANT UPDATE (approval_status, approved_by, decision_at, approval_note) ON public.company_leave TO authenticated;
+DO $leave_admin_policy$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='company_leave' AND policyname='Company admins decide leave requests') THEN
+    CREATE POLICY "Company admins decide leave requests" ON public.company_leave
+      FOR UPDATE TO authenticated
+      USING (public.is_company_admin(company_id))
+      WITH CHECK (public.is_company_admin(company_id));
+  END IF;
+END; $leave_admin_policy$;
