@@ -893,7 +893,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
   setBusy(true);setMessage('')
   const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null,approval_status:'pending'}).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
   if(error)setMessage('Could not submit leave: '+error.message)
-  else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setShowLeaveForm(false);setMessage('Leave request submitted for admin approval.')}
+  else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setShowLeaveForm(false);const notify=await supabase.functions.invoke('send-leave-request-whatsapp',{body:{company_id:company.id,leave_id:(data as CompanyLeaveRecord).id}});setMessage(notify.error?'Leave request submitted for approval. WhatsApp notification could not be sent; check the Edge Function setup.':'Leave request submitted for approval and admin notification queued.')}
   setBusy(false)
  }
  async function cancelLeave(leave:CompanyLeaveRecord){
