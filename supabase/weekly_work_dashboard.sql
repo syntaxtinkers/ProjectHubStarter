@@ -30,8 +30,12 @@ create index if not exists task_daily_updates_user_week_idx on public.task_daily
 create index if not exists task_daily_updates_task_date_idx on public.task_daily_updates(task_id, work_date);
 alter table public.task_daily_updates enable row level security;
 
-drop policy if exists "Users read daily updates for accessible assigned tasks" on public.task_daily_updates;
-create policy "Users read daily updates for accessible assigned tasks"
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'task_daily_updates' AND policyname = 'Users read daily updates for accessible assigned tasks'
+  ) THEN
+    EXECUTE $policy_body$create policy "Users read daily updates for accessible assigned tasks"
 on public.task_daily_updates for select to authenticated
 using (
   user_id = (select auth.uid())
@@ -45,17 +49,29 @@ using (
     join public.company_projects cp on cp.project_id = t.project_id
     where t.id = task_daily_updates.task_id and public.is_company_admin(cp.company_id)
   )
-);
-drop policy if exists "Users create their own daily updates" on public.task_daily_updates;
-create policy "Users create their own daily updates"
+)$policy_body$;
+  END IF;
+END $safe_policy$;
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'task_daily_updates' AND policyname = 'Users create their own daily updates'
+  ) THEN
+    EXECUTE $policy_body$create policy "Users create their own daily updates"
 on public.task_daily_updates for insert to authenticated
 with check (
   user_id = (select auth.uid())
   and updated_by = (select auth.uid())
   and exists (select 1 from public.project_tasks t where t.id = task_daily_updates.task_id and t.assigned_to_user_id = (select auth.uid()))
-);
-drop policy if exists "Users update their own daily updates" on public.task_daily_updates;
-create policy "Users update their own daily updates"
+)$policy_body$;
+  END IF;
+END $safe_policy$;
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'task_daily_updates' AND policyname = 'Users update their own daily updates'
+  ) THEN
+    EXECUTE $policy_body$create policy "Users update their own daily updates"
 on public.task_daily_updates for update to authenticated
 using (
   user_id = (select auth.uid())
@@ -65,7 +81,9 @@ with check (
   user_id = (select auth.uid())
   and updated_by = (select auth.uid())
   and exists (select 1 from public.project_tasks t where t.id = task_daily_updates.task_id and t.assigned_to_user_id = (select auth.uid()))
-);
+)$policy_body$;
+  END IF;
+END $safe_policy$;
 grant select, insert, update on public.task_daily_updates to authenticated;
 grant all privileges on public.task_daily_updates to service_role;
 
@@ -149,11 +167,17 @@ create table if not exists public.company_member_contacts (
 );
 alter table public.company_member_contacts add column if not exists whatsapp_opted_in boolean not null default false;
 alter table public.company_member_contacts enable row level security;
-drop policy if exists "Company admins manage private member contacts" on public.company_member_contacts;
-create policy "Company admins manage private member contacts"
+DO $safe_policy$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'company_member_contacts' AND policyname = 'Company admins manage private member contacts'
+  ) THEN
+    EXECUTE $policy_body$create policy "Company admins manage private member contacts"
 on public.company_member_contacts for all to authenticated
 using (public.is_company_admin(company_id))
-with check (public.is_company_admin(company_id));
+with check (public.is_company_admin(company_id))$policy_body$;
+  END IF;
+END $safe_policy$;
 grant select,insert,update,delete on public.company_member_contacts to authenticated;
 grant all privileges on public.company_member_contacts to service_role;
 
