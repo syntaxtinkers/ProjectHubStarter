@@ -685,3 +685,16 @@
 
 .company-whatsapp-optin { display:flex; align-items:center; gap:5px; margin-top:5px; color:var(--company-muted); font-size:9px; font-weight:600; white-space:nowrap; }
 .company-whatsapp-optin input { width:12px; height:12px; accent-color:var(--company-accent); }
+
+/* Compact stage timeline rows so more stages fit on screen. */
+.gantt-head,.gantt-row{grid-template-columns:190px minmax(0,1fr)!important;min-height:0!important}
+.gantt-task-name{padding:4px 8px!important;gap:0!important;min-height:27px!important}
+.gantt-task-name>b{font-size:10px!important;line-height:1.15!important;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt-track{min-height:27px!important}
+.gantt-bar{top:6px!important;height:15px!important}
+.gantt-days{min-height:27px!important}
+.gantt-days .gantt-day{padding:3px 2px!important}
+.stage-sheet .task-grid-editor{min-width:105px}
+.stage-sheet td{padding:5px 6px}
+.stage-sheet th{white-space:nowrap}
+.stage-sheet .sheet-name{max-width:190px;white-space:normal;text-align:left}
