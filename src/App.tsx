@@ -838,7 +838,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
    if(isAdmin){const pendingResult=await supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at') .eq('company_id',company.id).eq('status','active').eq('approval_status','pending').order('created_at',{ascending:false});if(alive&&!pendingResult.error)setPendingLeaves((pendingResult.data??[]) as CompanyLeaveRecord[])}else setPendingLeaves([])
    if(isAdmin){
     const [scheduleResult,settingsResult]=await Promise.all([
-     supabase.rpc('get_company_attendance_schedule',{p_company_id:company.id,p_date:scheduleDate}),
+     supabase.rpc('get_company_attendance_schedule_v2',{p_company_id:company.id,p_date:scheduleDate}),
      supabase.from('company_whatsapp_settings').select('company_id,group_name,group_id,enabled,timezone,updated_by,updated_at').eq('company_id',company.id).maybeSingle()
     ])
     if(!alive)return
