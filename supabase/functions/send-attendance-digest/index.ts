@@ -63,7 +63,7 @@ Deno.serve(async (request: Request) => {
 
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const attendanceDate = dateInIndia();
-  const { data: rows, error: readError } = await admin.rpc("get_company_attendance_notification_rows", { p_date: attendanceDate });
+  const { data: rows, error: readError } = await admin.rpc("get_company_attendance_notification_rows_v2", { p_date: attendanceDate });
   if (readError) return json(500, { error: "Could not load the daily attendance snapshot: " + readError.message });
 
   type NotificationRow = {
