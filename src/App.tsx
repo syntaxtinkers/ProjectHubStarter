@@ -793,6 +793,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
  const [scheduleDate,setScheduleDate]=useState(indiaDate())
  const [myAttendance,setMyAttendance]=useState<AttendanceRecord[]>([])
  const [myLeaves,setMyLeaves]=useState<CompanyLeaveRecord[]>([])
+ const [pendingLeaves,setPendingLeaves]=useState<CompanyLeaveRecord[]>([])
  const [schedule,setSchedule]=useState<AttendanceScheduleRow[]>([])
  const [workMode,setWorkMode]=useState<'office'|'site'|'home'>('office')
  const [clockNow,setClockNow]=useState(Date.now())
@@ -811,7 +812,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
  const workElapsedSeconds=todayRecord?Math.max(0,Math.floor(((todayRecord.ended_at?new Date(todayRecord.ended_at).getTime():todayRecord.paused_at?new Date(todayRecord.paused_at).getTime():clockNow)-new Date(todayRecord.started_at).getTime())/1000)-(todayRecord.paused_seconds??0)):0
  const timerSeconds=Math.max(0,workElapsedSeconds)
  const editable=Boolean(todayRecord&&!todayRecord.frozen_at&&new Date(todayRecord.editable_until).getTime()>Date.now())
- const onLeaveToday=myLeaves.some(leave=>leave.status==='active'&&leave.start_date<=today&&leave.end_date>=today)
+ const onLeaveToday=myLeaves.some(leave=>leave.status==='active'&&(leave.approval_status??'approved')==='approved'&&leave.start_date<=today&&leave.end_date>=today)
 
  useEffect(()=>{const timer=window.setInterval(()=>setClockNow(Date.now()),1000);return()=>window.clearInterval(timer)},[])
  useEffect(()=>{
@@ -821,7 +822,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
    setLoading(true)
    const [attendanceResult,leaveResult]=await Promise.all([
     supabase.from('company_attendance').select('id,company_id,user_id,attendance_date,work_mode,work_location,started_at,editable_until,frozen_at,ended_at,paused_at,paused_seconds,work_state').eq('company_id',company.id).eq('user_id',currentUser.id).order('attendance_date',{ascending:false}).limit(60),
-    supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('start_date',{ascending:false}).limit(60)
+    supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at').eq('company_id',company.id).eq('user_id',currentUser.id).order('start_date',{ascending:false}).limit(60)
    ])
    if(!alive)return
    if(attendanceResult.error)setMessage('Could not load your attendance: '+attendanceResult.error.message)
@@ -833,6 +834,7 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
    }
    if(leaveResult.error)setMessage('Could not load your leave history: '+leaveResult.error.message)
    else setMyLeaves((leaveResult.data??[]) as CompanyLeaveRecord[])
+   if(isAdmin){const pendingResult=await supabase.from('company_leave').select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at').eq('company_id',company.id).eq('approval_status','pending').order('created_at',{ascending:false});if(alive&&!pendingResult.error)setPendingLeaves((pendingResult.data??[]) as CompanyLeaveRecord[])}else setPendingLeaves([])
    if(isAdmin){
     const [scheduleResult,settingsResult]=await Promise.all([
      supabase.rpc('get_company_attendance_schedule',{p_company_id:company.id,p_date:scheduleDate}),
@@ -867,13 +869,30 @@ function AttendancePage({company,currentUser,isAdmin}:{company:Company;currentUs
   }
   setBusy(false)
  }
+ async function changeWorkState(action:'pause'|'resume'|'end'){
+  if(!supabase||!todayRecord)return
+  if(todayRecord.ended_at||todayRecord.work_state==='ended'){setMessage('Today’s work session has already ended.');return}
+  setBusy(true);setMessage('');const now=new Date().toISOString();const patch:Record<string,unknown>={}
+  if(action==='pause'){if(todayRecord.work_state==='paused'){setBusy(false);return}patch.work_state='paused';patch.paused_at=now}
+  else if(action==='resume'){if(!todayRecord.paused_at){setBusy(false);return}patch.work_state='working';patch.paused_seconds=(todayRecord.paused_seconds??0)+Math.max(0,Math.floor((Date.now()-new Date(todayRecord.paused_at).getTime())/1000));patch.paused_at=null}
+  else {patch.work_state='ended';patch.ended_at=now;if(todayRecord.paused_at){patch.paused_seconds=(todayRecord.paused_seconds??0)+Math.max(0,Math.floor((Date.now()-new Date(todayRecord.paused_at).getTime())/1000));patch.paused_at=null}}
+  const {data,error}=await supabase.from('company_attendance').update(patch).eq('id',todayRecord.id).select('id,company_id,user_id,attendance_date,work_mode,work_location,started_at,editable_until,frozen_at,ended_at,paused_at,paused_seconds,work_state').single()
+  if(error)setMessage('Could not update work timer: '+error.message);else{setMyAttendance(current=>current.map(row=>row.id===data.id?data as AttendanceRecord:row));setMessage(action==='pause'?'Work timer paused.':action==='resume'?'Work timer resumed.':'Work session ended.')}
+  setBusy(false)
+ }
+ async function decideLeave(leave:CompanyLeaveRecord,decision:'approved'|'rejected'){
+  if(!supabase||!isAdmin)return;setBusy(true);setMessage('')
+  const {data,error}=await supabase.from('company_leave').update({approval_status:decision,approved_by:currentUser.id,decision_at:new Date().toISOString(),status:decision==='approved'?'active':'cancelled'}).eq('id',leave.id).select('id,company_id,user_id,start_date,end_date,reason,status,approval_status,approved_by,decision_at,approval_note,created_at,updated_at').single()
+  if(error)setMessage('Could not update leave request: '+error.message);else{setPendingLeaves(current=>current.filter(row=>row.id!==leave.id));if(leave.user_id===currentUser.id)setMyLeaves(current=>current.map(row=>row.id===leave.id?data as CompanyLeaveRecord:row));setMessage(decision==='approved'?'Leave approved. WhatsApp confirmation requires the leave notification function and approved template to be configured.':'Leave request rejected.')}
+  setBusy(false)
+ }
  async function submitLeave(e:FormEvent){
   e.preventDefault()
   if(!supabase||leaveEnd<leaveStart||leaveStart<today){setMessage('Choose a valid leave period starting today or later.');return}
   setBusy(true);setMessage('')
-  const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null}).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
+  const {data,error}=await supabase.from('company_leave').insert({company_id:company.id,user_id:currentUser.id,start_date:leaveStart,end_date:leaveEnd,reason:leaveReason.trim()||null,approval_status:'pending'}).select('id,company_id,user_id,start_date,end_date,reason,status,created_at,updated_at').single()
   if(error)setMessage('Could not submit leave: '+error.message)
-  else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setMessage('Leave added to the company schedule. It will be reflected in the 10 AM attendance message.')}
+  else {setMyLeaves(current=>[data as CompanyLeaveRecord,...current]);setLeaveReason('');setShowLeaveForm(false);setMessage('Leave request submitted for admin approval.')}
   setBusy(false)
  }
  async function cancelLeave(leave:CompanyLeaveRecord){
