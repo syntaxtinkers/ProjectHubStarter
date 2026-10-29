@@ -44,3 +44,28 @@ DO $leave_admin_policy$ BEGIN
 END; $leave_admin_policy$;
 
 GRANT INSERT (company_id, user_id, attendance_date, work_mode, work_location) ON public.company_attendance TO authenticated;
+
+-- Admin-only aggregate task metrics for the company dashboard. No task rows are changed.
+create or replace function public.get_company_employee_metrics(p_company_id uuid)
+returns table(user_id uuid,total_tasks bigint,completed_tasks bigint)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_company_admin(p_company_id) then
+    raise exception 'Company admin access required';
+  end if;
+  return query
+    select cm.user_id,
+      count(t.id)::bigint as total_tasks,
+      count(t.id) filter (where t.status='done')::bigint as completed_tasks
+    from public.company_members cm
+    left join public.company_projects cp on cp.company_id=cm.company_id
+    left join public.project_tasks t on t.project_id=cp.project_id and t.assigned_to_user_id=cm.user_id
+    where cm.company_id=p_company_id
+    group by cm.user_id;
+end;
+$$;
+grant execute on function public.get_company_employee_metrics(uuid) to authenticated;
