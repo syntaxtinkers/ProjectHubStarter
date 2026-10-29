@@ -131,6 +131,7 @@ export default function App() {
     ...defaultCompanyTheme, bg: prefs.bg, panel: prefs.panel, panel2: prefs.panel, text: prefs.text, accent: prefs.accent,
     accent2: prefs.accent, muted: '#8792ad', border: '#252f46'
   }) as CompanyTheme
+  useEffect(()=>{ document.title=displayCompany?.name ? `${displayCompany.name} Project Hub` : 'ProjectHub'; const icon=document.querySelector<HTMLLinkElement>('link[rel~="icon"]'); if(icon&&displayCompany?.logo_url) icon.href=displayCompany.logo_url },[displayCompany?.name,displayCompany?.logo_url])
   const themeStyle = {
     '--bg': activeTheme.bg, '--panel': activeTheme.panel, '--panel2': activeTheme.panel2, '--line': activeTheme.border,
     '--muted': activeTheme.muted, '--text': activeTheme.text, '--purple': activeTheme.accent, '--purple2': activeTheme.accent2,
