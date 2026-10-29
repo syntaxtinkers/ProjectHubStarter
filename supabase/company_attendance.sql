@@ -71,7 +71,7 @@ for select to authenticated using (
   public.is_company_member(company_id) and (user_id = (select auth.uid()) or public.is_company_admin(company_id))
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -85,7 +85,7 @@ for insert to authenticated with check (
   and attendance_date = ((now() at time zone 'Asia/Kolkata')::date)
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -105,7 +105,7 @@ for update to authenticated using (
   and public.is_company_member(company_id)
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -117,7 +117,7 @@ for select to authenticated using (
   public.is_company_member(company_id) and (user_id = (select auth.uid()) or public.is_company_admin(company_id))
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -133,7 +133,7 @@ for insert to authenticated with check (
   and status = 'active'
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -152,7 +152,7 @@ for update to authenticated using (
   and public.is_company_member(company_id)
 )$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -162,7 +162,7 @@ DO $safe_policy$ BEGIN
     EXECUTE $policy_body$create policy "Company admins read WhatsApp delivery settings" on public.company_whatsapp_settings
 for select to authenticated using (public.is_company_admin(company_id))$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -173,7 +173,7 @@ DO $safe_policy$ BEGIN
 for all to authenticated using (public.is_company_admin(company_id))
 with check (public.is_company_admin(company_id))$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 DO $safe_policy$ BEGIN
   IF NOT EXISTS (
@@ -183,7 +183,7 @@ DO $safe_policy$ BEGIN
     EXECUTE $policy_body$create policy "Company admins can read notification delivery status" on public.company_attendance_notification_runs
 for select to authenticated using (public.is_company_admin(company_id))$policy_body$;
   END IF;
-END $safe_policy$;
+END; $safe_policy$;
 
 grant select on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to authenticated;
 grant all privileges on public.company_attendance, public.company_leave, public.company_whatsapp_settings, public.company_attendance_notification_runs to service_role;
@@ -233,7 +233,7 @@ DO $safe_trigger$ BEGIN
     EXECUTE $trigger_body$create trigger company_attendance_guard before insert or update on public.company_attendance
 for each row execute function public.guard_company_attendance()$trigger_body$;
   END IF;
-END $safe_trigger$;
+END; $safe_trigger$;
 
 create or replace function public.guard_company_leave()
 returns trigger
@@ -271,7 +271,7 @@ DO $safe_trigger$ BEGIN
     EXECUTE $trigger_body$create trigger company_leave_guard before insert or update on public.company_leave
 for each row execute function public.guard_company_leave()$trigger_body$;
   END IF;
-END $safe_trigger$;
+END; $safe_trigger$;
 
 create or replace function public.get_company_attendance_schedule(p_company_id uuid, p_date date default ((now() at time zone 'Asia/Kolkata')::date))
 returns table(
