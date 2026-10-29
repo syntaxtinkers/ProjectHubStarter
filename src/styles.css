@@ -811,3 +811,16 @@
   .app-shell.sidebar-collapsed .sidebar:hover { width:min(246px,90vw); min-width:min(246px,90vw); }
   .app-shell.sidebar-collapsed .sidebar:hover::before { width:min(246px,90vw); }
 }
+
+/* Ensure the hover-expanded sidebar paints above the page without reflowing it. */
+.app-shell.sidebar-collapsed .sidebar { isolation:isolate; background:#0e1425; }
+.app-shell.sidebar-collapsed .sidebar::before { z-index:0; background:#0e1425; }
+.app-shell.sidebar-collapsed .sidebar > * { position:relative; z-index:1; }
+.app-shell.sidebar-collapsed .sidebar:hover { background:#0e1425; }
+.app-shell.sidebar-collapsed .sidebar .brand { flex-wrap:wrap; gap:2px; }
+.app-shell.sidebar-collapsed .sidebar .company-logo-mark { width:30px; height:30px; object-fit:contain; }
+.app-shell.sidebar-collapsed .sidebar:hover .brand { flex-wrap:nowrap; }
+@media(max-width:800px) {
+  .app-shell.sidebar-collapsed .sidebar .brand { flex-wrap:wrap; }
+  .app-shell.sidebar-collapsed .sidebar:hover .brand { flex-wrap:nowrap; }
+}
