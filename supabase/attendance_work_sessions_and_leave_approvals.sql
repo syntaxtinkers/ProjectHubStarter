@@ -122,3 +122,7 @@ as $$
  where w.enabled=true order by c.name,6
 $$;
 grant execute on function public.get_company_attendance_notification_rows_v2(date) to service_role;
+
+revoke all on function public.get_company_employee_metrics_v2(uuid) from public, anon;
+revoke all on function public.get_company_attendance_schedule_v2(uuid,date) from public, anon;
+revoke all on function public.get_company_attendance_notification_rows_v2(date) from public, anon, authenticated;
